@@ -212,26 +212,26 @@ func runNewsQuery(cmd *cobra.Command, args []string) error {
 
 func printStockNews(code string, r *newsfeed.StockNewsResult) {
 	if len(r.Items) == 0 {
-		fmt.Printf("%s: 没有可用的资讯\n", code)
+		fmt.Printf("%s: 没有可用的资讯\n", bold(code))
 		if r.Message != "" {
 			fmt.Printf("  %s\n", r.Message)
 		}
 		for _, d := range r.Degraded {
-			fmt.Printf("  数据源 %s 不可用: %s\n", d.Source, d.Error)
+			fmt.Printf("  %s %s 不可用: %s\n", yellow("数据源"), d.Source, d.Error)
 		}
 		return
 	}
 
 	statusLabel := map[string]string{
 		"ok":                "",
-		"stale":             "（部分数据源不可用，展示库内已有数据）",
-		"insufficient_data": "（数据不足）",
+		"stale":             yellow("（部分数据源不可用，展示库内已有数据）"),
+		"insufficient_data": yellow("（数据不足）"),
 	}[r.Status]
 
-	fmt.Printf("%s 最新资讯 %s\n", code, statusLabel)
+	fmt.Printf("%s %s %s\n", bold(code), "最新资讯", statusLabel)
 	if r.Status == "stale" {
 		for _, d := range r.Degraded {
-			fmt.Printf("  降级数据源: %s — %s\n", d.Source, d.Error)
+			fmt.Printf("  %s %s — %s\n", yellow("降级数据源:"), d.Source, d.Error)
 		}
 	}
 	fmt.Println()
@@ -253,12 +253,14 @@ func printStockNews(code string, r *newsfeed.StockNewsResult) {
 				}
 			}
 		}
-		fmt.Printf("%2d. [%s] [%s/%s] %s\n",
-			i+1, it.PublishTime.Format("01-02 15:04"), it.Source, it.NewsType, truncate(it.Title, 60))
-		fmt.Printf("    %s  关联=%s(%.2f)\n", it.URL, marker, confOf(it))
+		fmt.Printf("%s %s %s\n",
+			bold(fmt.Sprintf("%2d.", i+1)),
+			dim(fmt.Sprintf("[%s] [%s/%s]", it.PublishTime.Format("01-02 15:04"), it.Source, it.NewsType)),
+			truncate(it.Title, 60))
+		fmt.Printf("    %s  %s\n", dim(it.URL), dim(fmt.Sprintf("关联=%s(%.2f)", marker, confOf(it))))
 	}
 	if r.WeakCount > 0 {
-		fmt.Printf("\n另有 %d 条仅在正文中提及该股，已按置信度阈值过滤（--all-mentions 查看）\n", r.WeakCount)
+		fmt.Printf("\n%s\n", dim(fmt.Sprintf("另有 %d 条仅在正文中提及该股，已按置信度阈值过滤（--all-mentions 查看）", r.WeakCount)))
 	}
 }
 

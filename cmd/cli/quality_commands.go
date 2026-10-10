@@ -253,15 +253,15 @@ func printQualityReport(report *quality.UnifiedQualityReport) {
 
 	// 状态行
 	statusIcon := "✅"
-	statusColor := "\033[32m"
+	statusPaint := green
 	if report.Status == quality.GateBlock {
 		statusIcon = "❌"
-		statusColor = "\033[31m"
+		statusPaint = red
 	} else if report.Status == quality.GateWarn {
 		statusIcon = "⚠️"
-		statusColor = "\033[33m"
+		statusPaint = yellow
 	}
-	fmt.Printf("  状态: %s%s\033[0m %s (综合分 %.1f)\n", statusColor, statusIcon, report.Status, report.Score)
+	fmt.Printf("  状态: %s %s (综合分 %.1f)\n", statusPaint(statusIcon), report.Status, report.Score)
 	fmt.Println()
 
 	// 各质量门结果

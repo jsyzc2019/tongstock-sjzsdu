@@ -84,7 +84,8 @@ func runStockinfo(cmd *cobra.Command, args []string) error {
 				fmt.Printf("  ... 仅显示前 50 只\n")
 				break
 			}
-			fmt.Printf("  %s %s  价格: %.2f  涨跌: %.2f%%\n", info.Code, info.Name, info.Price, info.ChangePct)
+			fmt.Printf("  %s %s  价格: %.2f  涨跌: %s%%\n", cyan(info.Code), info.Name, info.Price,
+				changeStyle(info.ChangePct, fmt.Sprintf("%+.2f", info.ChangePct)))
 		}
 		return nil
 	}
@@ -111,7 +112,8 @@ func runStockinfo(cmd *cobra.Command, args []string) error {
 				fmt.Printf("  ... 仅显示前 50 只\n")
 				break
 			}
-			fmt.Printf("  %s %s  价格: %.2f  涨跌: %.2f%%\n", info.Code, info.Name, info.Price, info.ChangePct)
+			fmt.Printf("  %s %s  价格: %.2f  涨跌: %s%%\n", cyan(info.Code), info.Name, info.Price,
+				changeStyle(info.ChangePct, fmt.Sprintf("%+.2f", info.ChangePct)))
 		}
 		return nil
 	}
@@ -127,10 +129,10 @@ func runStockinfo(cmd *cobra.Command, args []string) error {
 		return enc.Encode(info)
 	}
 
-	fmt.Printf("股票基础信息 (%s %s):\n", info.Code, info.Name)
+	fmt.Printf("%s\n", bold(fmt.Sprintf("股票基础信息 (%s %s):", info.Code, info.Name)))
 	fmt.Printf("  交易所:     %s\n", info.Exchange)
 	fmt.Printf("  价格:       %.2f\n", info.Price)
-	fmt.Printf("  涨跌幅:     %.2f%%\n", info.ChangePct)
+	fmt.Printf("  涨跌幅:     %s%%\n", changeStyle(info.ChangePct, fmt.Sprintf("%+.2f", info.ChangePct)))
 	fmt.Printf("  成交量:     %.0f 手\n", info.Volume)
 	fmt.Printf("  成交额:     %.2f 万元\n", info.Amount)
 	fmt.Printf("  换手率:     %.2f%%\n", info.TurnoverRate)

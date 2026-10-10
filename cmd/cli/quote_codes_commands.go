@@ -31,8 +31,15 @@ func runQuote(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("获取行情失败: %w", cliDataError(err, spec))
 		}
 		q := result.Quote
-		fmt.Printf("%s %s\n", q.Code, q.Name)
-		fmt.Printf("  最新价: %.3f\n", q.Price)
+		fmt.Printf("%s %s\n", cyan(q.Code), bold(q.Name))
+		fmt.Printf("  最新价: %s\n", changeStyle(q.Price-q.LastClose, fmt.Sprintf("%.3f", q.Price)))
+		if q.LastClose > 0 {
+			change := q.Price - q.LastClose
+			pct := change / q.LastClose * 100
+			fmt.Printf("  涨跌:   %s (%s%%)\n",
+				changeStyle(change, fmt.Sprintf("%+.3f", change)),
+				changeStyle(pct, fmt.Sprintf("%+.2f", pct)))
+		}
 		fmt.Printf("  开盘: %.3f 最高: %.3f 最低: %.3f\n", q.Open, q.High, q.Low)
 		fmt.Printf("  成交量: %.2f 手\n", q.Volume)
 		fmt.Printf("  成交额: %.2f 万\n", q.Amount)

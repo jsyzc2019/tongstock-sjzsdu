@@ -87,7 +87,7 @@ func runTopic(cmd *cobra.Command, args []string) error {
 
 func printTopics(r *newsfeed.HotTopicResult) {
 	if r.Fallback {
-		fmt.Printf("%s 不是交易日，已回溯到最近交易日 %s\n", r.Date, r.TradingDate)
+		fmt.Printf("%s 不是交易日，已回溯到最近交易日 %s\n", dim(r.Date), r.TradingDate)
 	}
 
 	title := "热门股票"
@@ -96,22 +96,22 @@ func printTopics(r *newsfeed.HotTopicResult) {
 	}
 
 	if len(r.Items) == 0 {
-		fmt.Printf("%s: 没有可用的数据\n", title)
+		fmt.Printf("%s: 没有可用的数据\n", bold(title))
 		if r.Message != "" {
 			fmt.Printf("  %s\n", r.Message)
 		}
 		for _, d := range r.Degraded {
-			fmt.Printf("  数据源 %s 不可用: %s\n", d.Source, d.Error)
+			fmt.Printf("  %s %s 不可用: %s\n", yellow("数据源"), d.Source, d.Error)
 		}
 		return
 	}
 
 	statusLabel := map[string]string{
 		"ok":                "",
-		"stale":             "（部分数据源不可用，展示库内已有数据）",
-		"insufficient_data": "（数据不足）",
+		"stale":             yellow("（部分数据源不可用，展示库内已有数据）"),
+		"insufficient_data": yellow("（数据不足）"),
 	}[r.Status]
-	fmt.Printf("%s 日期=%s %s\n", title, r.Date, statusLabel)
+	fmt.Printf("%s %s %s\n", bold(title), dim("日期="+r.Date), statusLabel)
 	if r.SyncedCount > 0 {
 		fmt.Printf("  本次抓取入库 %d 条新闻\n", r.SyncedCount)
 	}
@@ -122,24 +122,41 @@ func printTopics(r *newsfeed.HotTopicResult) {
 		if name == "" {
 			name = "-"
 		}
-		fmt.Printf("%2d. %s %s  提及 %d 次  热度 %d\n",
-			i+1, it.Code, name, it.Mentions, it.HotScore)
+		fmt.Printf("%s %s %s  提及 %s 次  热度 %s\n",
+			bold(fmt.Sprintf("%2d.", i+1)), cyan(it.Code), bold(name),
+			fmt.Sprintf("%d", it.Mentions), hotScoreStyle(it.HotScore))
 		if topicWide {
 			for _, h := range it.Headlines {
-				fmt.Printf("      · [%s] [%s] %s\n", h.PublishTime.Format("01-02 15:04"), h.Source, h.Title)
+				fmt.Printf("      %s %s\n",
+					dim(fmt.Sprintf("· [%s] [%s]", h.PublishTime.Format("01-02 15:04"), h.Source)),
+					h.Title)
 				if h.Summary != "" {
-					fmt.Printf("        %s\n", h.Summary)
+					fmt.Printf("        %s\n", dim(h.Summary))
 				}
 				if h.MatchReason != "" {
-					fmt.Printf("        ↳ 关联: %s\n", h.MatchReason)
+					fmt.Printf("        %s %s\n", dim("↳ 关联:"), dim(h.MatchReason))
 				}
 			}
 			if len(it.Sources) > 0 {
-				fmt.Printf("      来源: %s\n", strings.Join(it.Sources, "、"))
+				fmt.Printf("      %s %s\n", dim("来源:"), dim(strings.Join(it.Sources, "、")))
 			}
+			fmt.Println()
 		}
 	}
 	if r.Message != "" && r.Status == "ok" {
-		fmt.Printf("\n%s\n", r.Message)
+		fmt.Printf("%s\n", dim(r.Message))
+	}
+}
+
+// hotScoreStyle 按热度分档着色：高热红、中热黄、低热保持默认。
+func hotScoreStyle(score int) string {
+	s := fmt.Sprintf("%d", score)
+	switch {
+	case score >= 80:
+		return red(s)
+	case score >= 50:
+		return yellow(s)
+	default:
+		return s
 	}
 }
