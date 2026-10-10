@@ -81,10 +81,23 @@ require_fresh / allow_stale / cache_only。`,
 	RunE: runNewsSummarize,
 }
 
+var newsReindexCmd = &cobra.Command{
+	Use:   "reindex",
+	Short: "用当前实体识别规则重建库内新闻-股票关联",
+	Long: `识别规则升级后，存量关联不会被重新抓取覆盖（数据源只返回最新一批新闻），
+需要显式重建。重建会按当前规则重算本地识别（代码/简称命中），
+数据源原生关联与数据源给定的置信度原样保留。
+
+纯本地操作，不访问网络。典型场景：升级后修正历史数据里的泛词误命中
+（如 *ST发展 被「服务业发展」这类标题关联）。`,
+	RunE: runNewsReindex,
+}
+
 func init() {
 	newsCmd.AddCommand(newsQueryCmd)
 	newsCmd.AddCommand(newsFetchCmd)
 	newsCmd.AddCommand(newsSummarizeCmd)
+	newsCmd.AddCommand(newsReindexCmd)
 
 	newsQueryCmd.Flags().IntVarP(&newsLimit, "limit", "n", 20, "返回条数")
 	newsQueryCmd.Flags().IntVarP(&newsDays, "days", "d", 0, "只返回最近 N 天（0 表示不限）")
@@ -161,6 +174,27 @@ func parseNewsType(v string) (newsfeed.NewsType, bool) {
 		return newsfeed.NewsTypeDiscussion, true
 	}
 	return "", false
+}
+
+// runNewsReindex 重建库内全部新闻-股票关联。纯本地操作，不走一致性模式。
+func runNewsReindex(cmd *cobra.Command, args []string) error {
+	svc, cleanup, err := dialNewsService()
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	ctx, cancel := context.WithTimeout(cmd.Context(), 10*time.Minute)
+	defer cancel()
+
+	started := time.Now()
+	changed, pruned, err := svc.RebuildRefs(ctx)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("关联重建完成：修改 %d 条新闻，清理 %d 条孤儿关联，耗时 %s\n",
+		changed, pruned, time.Since(started).Round(time.Millisecond))
+	return nil
 }
 
 func runNewsQuery(cmd *cobra.Command, args []string) error {

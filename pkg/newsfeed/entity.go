@@ -109,6 +109,11 @@ func NewEntityMatcher(entities []StockEntity) *EntityMatcher {
 		// 新闻里两种写法都常见，且全称歧义更小。
 		full := strings.TrimSpace(e.Name)
 		addAlias(full, code)
+		// 新闻常把「*ST发展」写成「ST发展」，去掉星号的变体也要注册，
+		// 否则剥掉 ST 前缀的弱别名降级后，这类报道会完全丢失召回。
+		if trimmed, ok := strings.CutPrefix(full, "*"); ok && trimmed != "" {
+			addAlias(trimmed, code)
+		}
 		if norm := normalizeName(e.Name); norm != full {
 			addAlias(norm, code)
 		}
@@ -153,11 +158,15 @@ func (m *EntityMatcher) Match(text string) []StockRef {
 			if !equalRunes(runes[i:i+len(nr)], nr) {
 				continue
 			}
+			conf := nameConfidence(name)
 			for _, code := range m.byName[name] {
-				if prev, ok := found[code]; ok && prev.MatchType == MatchCodeHit {
-					continue // 代码命中优先，不降级
+				// 代码命中优先，且已有更高置信的简称命中不允许被更短的
+				// 别名拉低：「*ST皇庭…皇庭国际」里弱别名「皇庭」不能把
+				// 全称命中的 0.9 覆盖成弱置信。
+				if prev, ok := found[code]; ok && (prev.MatchType == MatchCodeHit || prev.Confidence >= conf) {
+					continue
 				}
-				found[code] = StockRef{Code: code, MatchType: MatchNameHit, Confidence: nameConfidence(name)}
+				found[code] = StockRef{Code: code, MatchType: MatchNameHit, Confidence: conf}
 			}
 			mask(runes[i : i+len(nr)])
 		}
@@ -176,6 +185,13 @@ func (m *EntityMatcher) Match(text string) []StockRef {
 	return refs
 }
 
+// weakNameConfidence 是 2 字简称的置信度。现网名录里所有 2 字简称都来自
+// ST 前缀剥离（*ST发展→发展、ST标准→标准，共 188 只），这类片段是超高频
+// 通用词，标题命中「服务业发展」「水利行业标准」纯属噪声。取 0.4 与正文
+// 命中同一档：明确低于默认阈值 0.5（不会卡在边界上），因而进不了热门榜与
+// 默认个股资讯，需要时可用 --all-mentions / --min-confidence 找回。
+const weakNameConfidence = 0.4
+
 func nameConfidence(name string) float64 {
 	switch l := len([]rune(name)); {
 	case l >= 4:
@@ -183,7 +199,7 @@ func nameConfidence(name string) float64 {
 	case l == 3:
 		return 0.75
 	default:
-		return 0.5
+		return weakNameConfidence
 	}
 }
 

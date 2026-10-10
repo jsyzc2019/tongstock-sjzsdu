@@ -706,9 +706,17 @@ func (s *SQLiteStore) GetHotEventDetail(ctx context.Context, eventID string) (*H
 // DeleteExpiredNews 删除过期新闻
 func (s *SQLiteStore) DeleteExpiredNews(ctx context.Context, days int) (int, error) {
 	expireTime := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
+	cutoff := expireTime.Format(time.RFC3339)
+	// 关联表必须先于新闻本体清理：读路径全部 JOIN news_items，
+	// 只删本体会留下永远读不到的孤儿关联，越积越多。
+	if _, err := s.db.ExecContext(ctx, `
+		DELETE FROM news_stock_ref WHERE news_id IN (SELECT id FROM news_items WHERE publish_time < ?)
+	`, cutoff); err != nil {
+		return 0, err
+	}
 	result, err := s.db.ExecContext(ctx, `
 		DELETE FROM news_items WHERE publish_time < ?
-	`, expireTime.Format(time.RFC3339))
+	`, cutoff)
 	if err != nil {
 		return 0, err
 	}

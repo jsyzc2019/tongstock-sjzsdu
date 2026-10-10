@@ -62,6 +62,53 @@ func TestEntityMatcherHandlesSTPrefix(t *testing.T) {
 	if len(refs) == 0 || refs[0].Code != "000056" {
 		t.Fatalf("got %+v", refs)
 	}
+	// 弱别名「皇庭」不得把全称命中的置信度拉低。
+	if refs[0].Confidence < 0.9 {
+		t.Fatalf("全称命中被短别名降级: %+v", refs[0])
+	}
+}
+
+// ST 前缀剥离出的 2 字简称（*ST发展→发展、ST标准→标准）是超高频通用词，
+// 必须低于默认阈值 0.5：否则「服务业发展」「水利行业标准」这类标题会把
+// 与之毫无关系的 ST 股推上热门榜。
+func TestEntityMatcherTwoCharAliasIsWeak(t *testing.T) {
+	m := NewEntityMatcher([]StockEntity{
+		{Code: "000838", Name: "*ST发展"},
+		{Code: "600302", Name: "ST标准"},
+	})
+	titles := []string{
+		"人社部：将研究出台服务业发展促就业文件 扩大服务业就业总量",
+		"我国将开展适应人工智能发展促就业行动",
+		"《团体标准化 良好行为规范》国标发布",
+		"水利部发布8项水利行业标准",
+	}
+	for _, title := range titles {
+		for _, r := range m.Match(title) {
+			if r.Confidence >= DefaultMinConfidence {
+				t.Fatalf("%q 不应产生强关联: %+v", title, r)
+			}
+		}
+	}
+}
+
+// 完整 ST 简称（含/不含星号）仍是强关联：真实报道不能因弱化通用词而丢失。
+func TestEntityMatcherSTFullNameStillStrong(t *testing.T) {
+	m := NewEntityMatcher([]StockEntity{{Code: "000838", Name: "*ST发展"}})
+	for _, tc := range []struct {
+		title string
+		min   float64
+	}{
+		{"*ST发展发布退市风险提示公告", 0.9},
+		{"ST发展披露整改进展", 0.75},
+	} {
+		refs := m.Match(tc.title)
+		if len(refs) == 0 || refs[0].Code != "000838" {
+			t.Fatalf("%q 未命中: %+v", tc.title, refs)
+		}
+		if refs[0].Confidence < tc.min {
+			t.Fatalf("%q 置信度 %v 低于 %v", tc.title, refs[0].Confidence, tc.min)
+		}
+	}
 }
 
 func TestEntityMatcherNoEntitiesNeverGuesses(t *testing.T) {
