@@ -29,7 +29,7 @@ type Options struct {
 	HorizonDays int
 	// TopK 是最后截面日产出的头部股票数。默认 30。
 	TopK int
-	// MaxCodes 限制参与研究的股票数（默认 300，与 methodautomation 对齐）。
+	// MaxCodes 限制参与研究的股票数（<=0 表示不设上限，与 methodautomation 对齐）。
 	MaxCodes int
 }
 
@@ -70,11 +70,8 @@ func (s *Service) Run(ctx context.Context, opts Options) (*RunResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	maxCodes := opts.MaxCodes
-	if maxCodes <= 0 {
-		maxCodes = 300
-	}
-	codes, _, err := s.deps.Universe.ResolveUniverse(ctx, snapshot.ID, 30, maxCodes)
+	// MaxCodes<=0 表示不设上限：使用快照内全部合格股票（与 methodautomation 对齐）。
+	codes, _, err := s.deps.Universe.ResolveUniverse(ctx, snapshot.ID, 30, opts.MaxCodes)
 	if err != nil {
 		return nil, fmt.Errorf("resolve snapshot universe: %w", err)
 	}

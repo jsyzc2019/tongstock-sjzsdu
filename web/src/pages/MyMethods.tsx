@@ -19,10 +19,12 @@ import {
   SettingOutlined,
 } from '@ant-design/icons';
 import MethodSummaryCard from '../components/methods/MethodSummaryCard';
+import MethodPoolDrawer from '../components/methods/MethodPoolDrawer';
 import MethodValidationDrawer from '../components/methods/MethodValidationDrawer';
 import { useMethodCatalog } from '../components/methods/useMethodCatalog';
 import { useMethodDiscovery } from '../components/methods/useMethodDiscovery';
 import { methodCanScreen } from '../lib/methodPresentation';
+import type { MethodCard } from '../api/client';
 import '../components/methods/methods.css';
 
 const { Paragraph, Text, Title } = Typography;
@@ -31,10 +33,11 @@ type AvailabilityFilter = 'all' | 'ready' | 'pending';
 export default function MyMethods() {
   const [query, setQuery] = useState('');
   const [availability, setAvailability] = useState<AvailabilityFilter>('all');
+  const [poolMethod, setPoolMethod] = useState<MethodCard | null>(null);
   const {
     items, loading, error, screeningId, seeding,
     drawerOpen, setDrawerOpen, detail, audit, researchTrace, detailLoading, detailError,
-    load, screenMethod, loadValidation, seedMethods,
+    load, screenMethod, loadValidation, seedMethods, deleteMethod,
   } = useMethodCatalog();
   const {
     status: researchStatus,
@@ -171,6 +174,8 @@ export default function MyMethods() {
               screening={screeningId === method.id}
               onScreen={(target) => void screenMethod(target)}
               onValidation={(target) => void loadValidation(target)}
+              onDelete={(target) => void deleteMethod(target)}
+              onPool={setPoolMethod}
             />
           ))}
         </Space>
@@ -192,6 +197,12 @@ export default function MyMethods() {
       )}
 
       <Text type="secondary">方法只有在历史样本外验证和证据等级同时达标后，才能用于“筛选今日股票”。退出规则在筛选结果的每个候选里生成退出计划（止损/止盈/最长持有），不会自动替你下单。</Text>
+
+      <MethodPoolDrawer
+        open={poolMethod !== null}
+        method={poolMethod}
+        onClose={() => setPoolMethod(null)}
+      />
 
       <MethodValidationDrawer
         open={drawerOpen}

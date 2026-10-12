@@ -47,6 +47,31 @@ func (r *SQLiteRepository) Save(ctx context.Context, m *methodregistry.Method, e
 	}
 	return tx.Commit()
 }
+
+// Delete 在同一事务里先写终止审计事件再删方法行；审计表不带外键级联，
+// 方法删除后审计记录仍然保留，可追溯删除原因。
+func (r *SQLiteRepository) Delete(ctx context.Context, id string, event methodregistry.AuditEvent) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if event.ID != "" {
+		eventRaw, _ := json.Marshal(event)
+		if _, err = tx.ExecContext(ctx, `INSERT INTO investment_method_audit(event_id,method_id,from_status,to_status,action,evidence_hash,event_json,created_at_ns) VALUES(?,?,?,?,?,?,?,?)`, event.ID, event.MethodID, event.From, event.To, event.Action, event.EvidenceHash, string(eventRaw), event.CreatedAt.UnixNano()); err != nil {
+			return fmt.Errorf("append method delete audit: %w", err)
+		}
+	}
+	res, err := tx.ExecContext(ctx, `DELETE FROM investment_method_registry WHERE method_id=?`, id)
+	if err != nil {
+		return fmt.Errorf("delete investment method: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return methodregistry.ErrNotFound
+	}
+	return tx.Commit()
+}
+
 func (r *SQLiteRepository) Get(ctx context.Context, id string) (*methodregistry.Method, error) {
 	var raw string
 	err := r.db.QueryRowContext(ctx, `SELECT method_json FROM investment_method_registry WHERE method_id=?`, id).Scan(&raw)

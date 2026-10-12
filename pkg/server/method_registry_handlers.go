@@ -14,6 +14,7 @@ func (s *Server) registerMethodRegistryRoutes(api *gin.RouterGroup) {
 	api.GET("/methods", s.handleMethodCards)
 	api.GET("/methods/:id", s.handleMethodCard)
 	api.GET("/methods/:id/audit", s.handleMethodAudit)
+	api.DELETE("/methods/:id", s.handleMethodDelete)
 	api.GET("/method-families/:id", s.handleMethodFamily)
 }
 
@@ -55,6 +56,25 @@ func (s *Server) handleMethodCard(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, card)
 }
+func (s *Server) handleMethodDelete(c *gin.Context) {
+	if !s.requireMethodRegistry(c) {
+		return
+	}
+	if c.Query("confirm") != "true" {
+		WriteError(c, http.StatusBadRequest, "delete_confirm_required", "删除方法必须显式携带 confirm=true")
+		return
+	}
+	if err := s.methodRegistry.Delete(c.Request.Context(), c.Param("id"), c.Query("reason"), "web-user"); err != nil {
+		if errors.Is(err, methodregistry.ErrNotFound) {
+			WriteError(c, http.StatusNotFound, "method_not_found", "投资方法不存在")
+			return
+		}
+		WriteError(c, http.StatusInternalServerError, "method_registry_failed", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"deleted": c.Param("id")})
+}
+
 func (s *Server) handleMethodAudit(c *gin.Context) {
 	if !s.requireMethodRegistry(c) {
 		return

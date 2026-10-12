@@ -111,6 +111,13 @@ type SnapshotRepository interface {
 	ListFeatureSnapshots(string) ([]*marketsnapshot.FeatureSnapshot, error)
 }
 
+// FeatureEnsurer 保证给定市场快照存在覆盖最新物化特征集的特征快照：
+// 库内只有旧特征集快照（如升级前缺 gap_pct 的 22 特征集）时就地重建，
+// 避免方法整批 insufficient_data。由 onboarding/物化器注入（可选）。
+type FeatureEnsurer interface {
+	EnsureFeatureSnapshot(ctx context.Context, market *marketsnapshot.MarketSnapshot) (*marketsnapshot.FeatureSnapshot, error)
+}
+
 type MethodRepository interface {
 	Query(context.Context, methodregistry.Query) ([]*methodregistry.Method, error)
 }

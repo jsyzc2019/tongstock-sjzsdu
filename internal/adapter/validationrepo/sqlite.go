@@ -109,6 +109,11 @@ func NewBenchmark(store *storage.Storage) *SQLiteBenchmarkProvider {
 	return &SQLiteBenchmarkProvider{bars: New(store)}
 }
 
+// NewBenchmarkFor 基于给定 BarProvider 创建基准适配器（活表数据源用）。
+func NewBenchmarkFor(bars validation.BarProvider) *SQLiteBenchmarkProvider {
+	return &SQLiteBenchmarkProvider{bars: bars}
+}
+
 // LoadDailyReturns 实现 validation.BenchmarkProvider。
 func (p *SQLiteBenchmarkProvider) LoadDailyReturns(ctx context.Context, snapshotID, code, dateStart, dateEnd string) (map[string]float64, error) {
 	bars, err := p.bars.LoadBars(ctx, snapshotID, code, dateStart, dateEnd)

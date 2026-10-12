@@ -129,6 +129,24 @@ func (r *Registry) ManualTransition(ctx context.Context, id string, to Status, r
 	}
 	return m, nil
 }
+// Delete 移除一个方法。红线：只删记录，不伪造任何状态——终止审计事件
+// （action=delete）与全部历史审计一起永久保留，删除原因必须留痕。
+func (r *Registry) Delete(ctx context.Context, id, reason, actor string) error {
+	if strings.TrimSpace(actor) == "" {
+		return fmt.Errorf("delete actor is required")
+	}
+	if strings.TrimSpace(reason) == "" {
+		reason = "用户主动删除"
+	}
+	m, err := r.repo.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	now := r.now()
+	event := AuditEvent{ID: stableID(id, now.Format(time.RFC3339Nano), "delete"), MethodID: id, From: m.Status, To: m.Status, Action: "delete", Reason: reason, Actor: actor, Automatic: false, CreatedAt: now}
+	return r.repo.Delete(ctx, id, event)
+}
+
 func (r *Registry) Get(ctx context.Context, id string) (*Method, error) { return r.repo.Get(ctx, id) }
 func (r *Registry) Card(ctx context.Context, id string) (Card, error) {
 	m, err := r.repo.Get(ctx, id)

@@ -102,9 +102,19 @@ export function useMethodCatalog() {
     }
   }, [load]);
 
+  const deleteMethod = useCallback(async (method: MethodCard) => {
+    try {
+      await api.deleteMethod(method.id);
+      void message.success(`已删除「${method.name}」，删除记录已留痕`);
+      await load();
+    } catch (cause) {
+      void message.error(cause instanceof Error ? cause.message : '删除方法失败');
+    }
+  }, [load]);
+
   return {
     items, loading, error, screeningId, seeding,
     drawerOpen, setDrawerOpen, detail, audit, researchTrace, detailLoading, detailError,
-    load, screenMethod, loadValidation, seedMethods,
+    load, screenMethod, loadValidation, seedMethods, deleteMethod,
   };
 }

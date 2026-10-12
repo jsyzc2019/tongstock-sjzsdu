@@ -25,6 +25,12 @@ type Engine struct {
 	// factorPicks 因子通道产出源（可选）：注入后 Run 会把最近落库的因子 TopN
 	// 名单转成 watch 级候选（见 factor_channel.go）。
 	factorPicks FactorPickSource
+	// ensurer（可选）：未显式指定 feature_snapshot_id 时，先保证有一个覆盖
+	// 最新特征集的快照可用（旧快照缺 gap_pct 等特征时就地重建）。
+	ensurer FeatureEnsurer
+	// poolNamer（可选）：MethodPool 展示名称补全（code→name）。快照持久化
+	// 不携带 name，重载后 UniverseMember.Name 为空。
+	poolNamer func(codes []string) map[string]string
 }
 
 func NewEngine(s SnapshotRepository, m MethodRepository, r Repository) (*Engine, error) {
@@ -45,7 +51,7 @@ func (e *Engine) Run(ctx context.Context, req Request) (*Run, error) {
 	if !market.IsReady() {
 		return nil, fmt.Errorf("market snapshot %s is not frozen and ready", market.ID)
 	}
-	feature, err := e.pickFeature(req.FeatureSnapshotID, market.ID)
+	feature, err := e.resolveFeature(ctx, req, market)
 	if err != nil {
 		return nil, err
 	}
@@ -219,18 +225,48 @@ func (e *Engine) Run(ctx context.Context, req Request) (*Run, error) {
 	return run, nil
 }
 
-func (e *Engine) pickFeature(id, marketID string) (*marketsnapshot.FeatureSnapshot, error) {
-	if id != "" {
-		return e.snapshots.LoadFeatureSnapshot(id, true)
+// SetFeatureEnsurer 注入特征快照「复用或重建」器（可选）。
+func (e *Engine) SetFeatureEnsurer(ensurer FeatureEnsurer) { e.ensurer = ensurer }
+
+// SetPoolNamer 注入股票池展示名称补全器（可选）。
+func (e *Engine) SetPoolNamer(namer func(codes []string) map[string]string) { e.poolNamer = namer }
+
+// resolveFeature 选择本次运行使用的特征快照：显式指定优先；否则先走
+// ensurer（复用覆盖最新特征集的快照，缺失则就地物化）；未装配 ensurer
+// 时回退到 pickFeature 的覆盖优先选取。
+func (e *Engine) resolveFeature(ctx context.Context, req Request, market *marketsnapshot.MarketSnapshot) (*marketsnapshot.FeatureSnapshot, error) {
+	if strings.TrimSpace(req.FeatureSnapshotID) != "" {
+		return e.snapshots.LoadFeatureSnapshot(req.FeatureSnapshotID, true)
 	}
+	if e.ensurer != nil {
+		return e.ensurer.EnsureFeatureSnapshot(ctx, market)
+	}
+	return e.pickFeature(market.ID)
+}
+
+func (e *Engine) pickFeature(marketID string) (*marketsnapshot.FeatureSnapshot, error) {
 	items, err := e.snapshots.ListFeatureSnapshots(marketID)
 	if err != nil {
 		return nil, err
 	}
+	// 优先覆盖全量默认 DSL 特征集的快照：升级前物化的旧快照可能 built_at
+	// 更晚（最新优先会选中它），而它缺 gap_pct/return1，会让引用这些特征的
+	// 方法整批 insufficient_data。
+	required := marketsnapshot.FeatureNames(marketsnapshot.DefaultDslFeatures())
+	fallback := ""
 	for _, item := range items {
-		if item.Status == marketsnapshot.StatusReady && item.LeakChecked {
+		if item == nil || item.Status != marketsnapshot.StatusReady || !item.LeakChecked {
+			continue
+		}
+		if len(item.MissingFeatures(required)) == 0 {
 			return e.snapshots.LoadFeatureSnapshot(item.ID, true)
 		}
+		if fallback == "" {
+			fallback = item.ID
+		}
+	}
+	if fallback != "" {
+		return e.snapshots.LoadFeatureSnapshot(fallback, true)
 	}
 	return nil, fmt.Errorf("no ready leak-checked feature snapshot for %s", marketID)
 }

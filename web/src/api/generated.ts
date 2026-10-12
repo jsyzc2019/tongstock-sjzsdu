@@ -240,6 +240,7 @@ export const operations = {
   getApiForwardSignalsId: { method: "GET", path: "/api/forward/signals/{id}" },
   getApiMethods: { method: "GET", path: "/api/methods" },
   getApiMethodsId: { method: "GET", path: "/api/methods/{id}" },
+  deleteApiMethodsId: { method: "DELETE", path: "/api/methods/{id}" },
   getApiMethodsIdAudit: { method: "GET", path: "/api/methods/{id}/audit" },
   getApiMethodFamiliesId: { method: "GET", path: "/api/method-families/{id}" },
   getApiMonitoringReport: { method: "GET", path: "/api/monitoring/report" },
@@ -277,4 +278,5 @@ export const operations = {
   getApiParadigmIdPromotionStatus: { method: "GET", path: "/api/paradigm/{id}/promotion/status" },
   getApiParadigmIdEvidence: { method: "GET", path: "/api/paradigm/{id}/evidence" },
   getApiMethodsResearchTracesSummary: { method: "GET", path: "/api/methods/research/traces/{id}/summary" },
+  getApiMethodsIdPool: { method: "GET", path: "/api/methods/{id}/pool" },
 } as const;

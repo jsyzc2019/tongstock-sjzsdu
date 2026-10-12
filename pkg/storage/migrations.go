@@ -1011,6 +1011,30 @@ CREATE TABLE IF NOT EXISTS factor_pick_run (
 CREATE INDEX IF NOT EXISTS idx_factor_pick_run_asof ON factor_pick_run(as_of DESC, updated_at_ns DESC);
 `,
 	},
+	{
+		version: 23,
+		name:    "method_audit_no_cascade",
+		// 审计是 append-only 证据链：删除方法时级联清空审计会让
+		// 「这个方法为什么被删」永久失查。重建为无外键的独立流水表。
+		sql: `
+CREATE TABLE IF NOT EXISTS investment_method_audit_nocascade (
+	event_id TEXT PRIMARY KEY,
+	method_id TEXT NOT NULL,
+	from_status TEXT NOT NULL,
+	to_status TEXT NOT NULL,
+	action TEXT NOT NULL,
+	evidence_hash TEXT NOT NULL DEFAULT '',
+	event_json TEXT NOT NULL,
+	created_at_ns INTEGER NOT NULL
+);
+INSERT OR IGNORE INTO investment_method_audit_nocascade
+	SELECT event_id, method_id, from_status, to_status, action, evidence_hash, event_json, created_at_ns
+	FROM investment_method_audit;
+DROP TABLE investment_method_audit;
+ALTER TABLE investment_method_audit_nocascade RENAME TO investment_method_audit;
+CREATE INDEX IF NOT EXISTS idx_investment_method_audit_method ON investment_method_audit(method_id, created_at_ns);
+`,
+	},
 }
 
 // Migrate upgrades the SQLite database transactionally. Store constructors

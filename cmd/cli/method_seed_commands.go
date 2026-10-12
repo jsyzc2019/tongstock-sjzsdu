@@ -104,7 +104,7 @@ func init() {
 	methodLibrarySeedCmd.Flags().StringVar(&seedUniverse, "universe", "", "股票代码列表（逗号分隔）；空=从快照解析")
 	methodLibrarySeedCmd.Flags().StringVar(&seedStart, "start", "", "新建快照的起始日 YYYY-MM-DD")
 	methodLibrarySeedCmd.Flags().StringVar(&seedEnd, "end", "", "新建快照的截止日 YYYY-MM-DD")
-	methodLibrarySeedCmd.Flags().IntVar(&seedMaxCodes, "max-codes", 300, "从快照解析股票池时的上限")
+	methodLibrarySeedCmd.Flags().IntVar(&seedMaxCodes, "max-codes", 0, "从快照解析股票池时的上限（<=0 表示不设上限）")
 	methodLibrarySeedCmd.Flags().StringSliceVar(&seedKeys, "keys", nil, "只载入指定 key 的种子方法（可重复）；空=全部")
 	methodLibrarySeedCmd.Flags().StringVar(&seedSplit, "split", "", "切分类型: fixed / walk_forward（空=walk_forward）")
 	methodLibrarySeedCmd.Flags().IntVar(&seedTrials, "trials", 1, "发现阶段尝试次数（多重检验惩罚）")

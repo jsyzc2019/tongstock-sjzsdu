@@ -39,8 +39,9 @@ type Deps struct {
 
 // Service 编排「一键走通」。
 type Service struct {
-	deps Deps
-	now  func() time.Time
+	deps    Deps
+	now     func() time.Time
+	ensurer *marketsnapshot.FeatureEnsurer
 }
 
 // NewService 构造引导服务。
@@ -48,7 +49,12 @@ func NewService(deps Deps) (*Service, error) {
 	if deps.Builder == nil || deps.Snapshots == nil || deps.Features == nil || deps.Selection == nil {
 		return nil, fmt.Errorf("onboarding requires builder, snapshots, features and selection")
 	}
-	return &Service{deps: deps, now: func() time.Time { return time.Now().UTC() }}, nil
+	svc := &Service{deps: deps, now: func() time.Time { return time.Now().UTC() }}
+	svc.ensurer = &marketsnapshot.FeatureEnsurer{
+		Builder: deps.Builder, Snapshots: deps.Snapshots, Features: deps.Features,
+		Now: func() time.Time { return svc.now() },
+	}
+	return svc, nil
 }
 
 // Run 依次执行：数据新鲜度 → 市场快照 → 特征快照 → 选股。
@@ -251,33 +257,26 @@ func (s *Service) marketStep(ctx context.Context, opts RunOptions, res *Result, 
 	return snapshot, ""
 }
 
-// featureStep 复用或构建一个 ready+leak-checked 的特征快照。
+// featureStep 复用或构建一个 ready+leak-checked 且覆盖最新特征集的特征快照。
+// 关键约束：只有特征集满足要求的快照才允许复用——升级前物化的旧快照（缺
+// gap_pct/return1）会被跳过并就地重建，否则引用新特征的方法会在选股时整批
+// insufficient_data，界面却仍显示「可用于今日筛选」。
 func (s *Service) featureStep(ctx context.Context, res *Result, market *marketsnapshot.MarketSnapshot) (*marketsnapshot.FeatureSnapshot, string) {
-	if existing, err := s.deps.Snapshots.ListFeatureSnapshots(market.ID); err == nil {
-		for _, item := range existing {
-			if item.Status == marketsnapshot.StatusReady && item.LeakChecked {
-				full, loadErr := s.deps.Snapshots.LoadFeatureSnapshot(item.ID, true)
-				if loadErr == nil && full != nil {
-					res.Steps = append(res.Steps, Step{Key: "features", Label: "物化特征快照", Status: StepSkipped,
-						Detail: fmt.Sprintf("复用已就绪特征快照 %s（%d 个特征）", full.ID, full.FeatureTotal)})
-					return full, ""
-				}
-			}
-		}
-	}
-	b := *s.deps.Builder
-	b.Now = s.now()
-	feature, err := b.BuildFeatureSnapshot(market, marketsnapshot.LatestSelectionFeatures(), s.deps.Features)
+	feature, reused, skipped, err := s.ensurer.Ensure(market)
 	if err != nil {
 		res.Steps = append(res.Steps, Step{Key: "features", Label: "物化特征快照", Status: StepFailed, Detail: err.Error()})
 		return nil, "构建特征快照失败：" + err.Error()
 	}
-	if err := s.deps.Snapshots.SaveFeatureSnapshot(feature); err != nil {
-		res.Steps = append(res.Steps, Step{Key: "features", Label: "物化特征快照", Status: StepFailed, Detail: err.Error()})
-		return nil, "保存特征快照失败：" + err.Error()
+	if reused {
+		res.Steps = append(res.Steps, Step{Key: "features", Label: "物化特征快照", Status: StepSkipped,
+			Detail: fmt.Sprintf("复用已就绪特征快照 %s（%d 个特征）", feature.ID, feature.FeatureTotal)})
+		return feature, ""
 	}
-	res.Steps = append(res.Steps, Step{Key: "features", Label: "物化特征快照", Status: StepDone,
-		Detail: fmt.Sprintf("物化 %d 个特征、%d 行（%d 只股票）", feature.FeatureTotal, feature.RowsWritten, len(feature.Values))})
+	detail := fmt.Sprintf("物化 %d 个特征、%d 行（%d 只股票）", feature.FeatureTotal, feature.RowsWritten, len(feature.Values))
+	if len(skipped) > 0 {
+		detail += "；跳过旧快照：" + strings.Join(skipped, "、")
+	}
+	res.Steps = append(res.Steps, Step{Key: "features", Label: "物化特征快照", Status: StepDone, Detail: detail})
 	return feature, ""
 }
 

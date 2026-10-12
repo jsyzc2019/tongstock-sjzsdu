@@ -64,7 +64,7 @@ type Deps struct {
 type Options struct {
 	// SnapshotID 复用已冻结真实 K 线快照；空 = 自动选最新可用的多票快照。
 	SnapshotID string
-	// MaxCodes 从快照解析股票池的上限；0 = 300。
+	// MaxCodes 从快照解析股票池的上限；<=0 表示不设上限。
 	MaxCodes int
 }
 
@@ -372,9 +372,7 @@ func (s *Service) resolveSnapshot(snapshotID string) (*paradigm.DatasetSnapshot,
 }
 
 func (s *Service) resolveCodes(ctx context.Context, snapshotID string, maxCodes int) ([]string, error) {
-	if maxCodes <= 0 {
-		maxCodes = 300
-	}
+	// maxCodes<=0 表示不设上限：使用快照内全部合格股票（>=30 根真实日线）。
 	codes, skipped, err := s.deps.Universe.ResolveUniverse(ctx, snapshotID, 30, maxCodes)
 	if err != nil {
 		return nil, fmt.Errorf("resolve snapshot universe: %w", err)

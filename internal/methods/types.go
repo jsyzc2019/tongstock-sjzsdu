@@ -46,10 +46,14 @@ type Scope struct {
 	// machine-readable scope.
 	MarketCapMin *float64 `json:"market_cap_min,omitempty"`
 	MarketCapMax *float64 `json:"market_cap_max,omitempty"`
-	ExcludeST    bool     `json:"exclude_st,omitempty"`
-	MarketState  []string `json:"market_state,omitempty"`  // "trend_up" "bear" "range" 空=无限制
-	FeatureDeps  []string `json:"feature_deps,omitempty"`  // 依赖的非内建特征名 (用于执行前 fail-fast)
-	MaxPositions int      `json:"max_positions,omitempty"` // 最大持仓数, 0=不限
+	// 户均持股区间（流通股本 / 股东户数，单位：股/户）。数值越高代表筹码越集中。
+	// 由分层验证（stratify）结论固化而来：同一方法在不同筹码结构上表现不同。
+	AvgSharesPerHolderMin *float64 `json:"avg_shares_per_holder_min,omitempty"`
+	AvgSharesPerHolderMax *float64 `json:"avg_shares_per_holder_max,omitempty"`
+	ExcludeST             bool     `json:"exclude_st,omitempty"`
+	MarketState           []string `json:"market_state,omitempty"`  // "trend_up" "bear" "range" 空=无限制
+	FeatureDeps           []string `json:"feature_deps,omitempty"`  // 依赖的非内建特征名 (用于执行前 fail-fast)
+	MaxPositions          int      `json:"max_positions,omitempty"` // 最大持仓数, 0=不限
 }
 
 // OutcomeRule defines the label used to validate a method.  It is part of the

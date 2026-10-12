@@ -8,6 +8,7 @@ import {
   Collapse,
   Input,
   List,
+  Popconfirm,
   Row,
   Space,
   Spin,
@@ -23,6 +24,7 @@ import {
   SearchOutlined,
   SettingOutlined,
   StockOutlined,
+  SyncOutlined,
 } from '@ant-design/icons';
 import {
   api,
@@ -125,6 +127,7 @@ export default function Dashboard() {
   const [answer, setAnswer] = useState('');
   const [showExclusions, setShowExclusions] = useState(false);
   const [seedResult, setSeedResult] = useState<MethodSeedResult>();
+  const [syncing, setSyncing] = useState(false);
   const [showGuide, setShowGuide] = useState(() => {
     if (typeof window === 'undefined') return false;
     return window.localStorage.getItem(ONBOARDING_KEY) !== '1';
@@ -147,6 +150,31 @@ export default function Dashboard() {
     setShowGuide(false);
     if (typeof window !== 'undefined') window.localStorage.setItem(ONBOARDING_KEY, '1');
   }, []);
+
+  /** 全市场日线同步：读搜索索引拿全量代码，POST /api/sync/daily（auto 模式，幂等）。 */
+  const syncAllMarket = async () => {
+    setSyncing(true);
+    try {
+      const idx = await api.stockSearchIndex();
+      const codes = (idx.items || []).map((i) => i.code);
+      if (!codes.length) {
+        void message.warning('未获取到股票列表，请确认已同步股票基础信息');
+        return;
+      }
+      void message.info(`开始同步 ${codes.length} 只，全量约需数分钟`);
+      const res = await api.syncDaily(codes, 'auto', 8);
+      if (res.failed > 0) {
+        void message.warning(`同步完成：成功 ${res.success}，失败 ${res.failed}`);
+      } else {
+        void message.success(`同步完成：${res.success} 只全部成功`);
+      }
+      await load();
+    } catch (e) {
+      void message.error(e instanceof Error ? e.message : '全市场同步失败');
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   const research = async () => {
     const q = question.trim();
@@ -311,6 +339,17 @@ export default function Dashboard() {
               title={`今日候选 · ${selection.snapshot_date}`}
               extra={
                 <Space size={12}>
+                  <Popconfirm
+                    title="全市场日线同步"
+                    description="同步全部个股最新日线，全量约 5000+ 只、耗时数分钟。已是最新数据的不会重复拉取。"
+                    okText="开始同步"
+                    cancelText="取消"
+                    onConfirm={() => void syncAllMarket()}
+                  >
+                    <Button size="small" icon={<SyncOutlined />} loading={syncing}>
+                      全市场同步
+                    </Button>
+                  </Popconfirm>
                   <Text type="secondary" style={{ fontSize: 12 }}>
                     扫描 {selection.scanned_stocks} 只 · 通过资格方法 {selection.eligible_methods} 个
                   </Text>

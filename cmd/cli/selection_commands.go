@@ -9,6 +9,7 @@ import (
 	"github.com/sjzsdu/tongstock/internal/adapter/marketsnapshotrepo"
 	"github.com/sjzsdu/tongstock/internal/adapter/methodregistryrepo"
 	"github.com/sjzsdu/tongstock/internal/adapter/selectionrepo"
+	"github.com/sjzsdu/tongstock/internal/marketsnapshot"
 	"github.com/sjzsdu/tongstock/internal/selection"
 	"github.com/sjzsdu/tongstock/pkg/config"
 	"github.com/sjzsdu/tongstock/pkg/storage"
@@ -136,6 +137,12 @@ func wireSelection() (*storage.Storage, *marketsnapshotrepo.SQLiteRepository, *s
 		store.Close()
 		return nil, nil, nil, nil, err
 	}
+	// 与服务端同口径：未显式指定特征快照时，先保证特征集覆盖最新 DSL
+	// （含 gap_pct/return1），旧快照缺失就地重建，避免整批 insufficient_data。
+	engine.SetFeatureEnsurer(&marketsnapshot.FeatureEnsurer{
+		Builder: &marketsnapshot.Builder{}, Snapshots: snapshots,
+		Features: marketsnapshotrepo.NewSQLiteFeatureEngine(store),
+	})
 	return store, snapshots, engine, runs, nil
 }
 func printSelection(run *selection.Run) error {

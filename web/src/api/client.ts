@@ -816,6 +816,19 @@ export const api = {
   methodCard: (id: string) => fetchJSON<MethodCard>(`/api/methods/${encodeURIComponent(id)}`),
   methodAudit: (id: string) =>
     fetchJSON<{ items: MethodAuditEvent[]; total: number }>(`/api/methods/${encodeURIComponent(id)}/audit`),
+  /** 方法股票池：当前冻结快照上逐只解析 scope，并标注当日是否触发 */
+  methodPool: (id: string, marketSnapshotId?: string) => {
+    const query = marketSnapshotId ? `?market_snapshot_id=${encodeURIComponent(marketSnapshotId)}` : '';
+    return fetchJSON<MethodPoolResult>(`/api/methods/${encodeURIComponent(id)}/pool${query}`);
+  },
+  /** 删除方法：终止审计事件永久留痕，方法本身从列表移除 */
+  deleteMethod: (id: string, reason?: string) => {
+    const query = new URLSearchParams({ confirm: 'true' });
+    if (reason) query.set('reason', reason);
+    return fetchJSON<{ deleted: string }>(`/api/methods/${encodeURIComponent(id)}?${query}`, {
+      method: 'DELETE',
+    });
+  },
 
   dashboardToday: () => fetchJSON<DashboardToday>('/api/dashboard/today'),
   onboardingRun: (req: OnboardingRunRequest = {}) =>
@@ -918,7 +931,20 @@ export interface PositionDecision { code:string;name:string;action:'hold'|'watch
 export interface PositionDecisionRun { id:string;snapshot_id:string;snapshot_date:string;decisions:PositionDecision[] }
 export interface MethodHealthState { score:number;forward_samples:number;drift?:boolean;decay?:boolean;execution_deviation?:boolean;critical_alerts?:number;consecutive_severe?:number;as_of?:string }
 export interface MethodEvidence { confidence:string;confidence_reason?:string;passable?:boolean;oos_trades:number;oos_return:number;oos_win_rate?:number;outcome_hit_rate?:number;outcome_observations?:number;oos_max_drawdown:number;sharpe_ratio?:number;sortino_ratio?:number;snapshot_id?:string;result_hash?:string;universe_size?:number;validation_start?:string;validation_end?:string }
-export interface MethodScope { universe?:string;board_filter?:string[];market_cap_min?:number;market_cap_max?:number;exclude_st?:boolean;market_state?:string[];feature_deps?:string[] }
+export interface MethodScope { universe?:string;board_filter?:string[];market_cap_min?:number;market_cap_max?:number;avg_shares_per_holder_min?:number;avg_shares_per_holder_max?:number;exclude_st?:boolean;market_state?:string[];feature_deps?:string[] }
+
+/** GET /api/methods/:id/pool 单条股票池判定 */
+export interface MethodPoolEntry {
+  code:string;name:string;board?:string;
+  in_scope:boolean;triggered:boolean;
+  reason_code?:string;detail?:string;
+  market_cap?:number;avg_shares_per_holder?:number;close?:number;
+}
+/** GET /api/methods/:id/pool 响应 */
+export interface MethodPoolResult {
+  method_id:string;snapshot_id:string;feature_snapshot_id:string;snapshot_date:string;
+  total:number;in_scope_count:number;triggered_count:number;entries:MethodPoolEntry[];
+}
 export interface MethodOutcome { horizon_days?:number;target_return_pct?:number;price_basis?:string;success?:string }
 export interface MethodRuleExpr { type:string;indicator?:string;params?:string[];value?:number;op?:string;cross?:string;window_days?:number;window_mode?:string;rank_pct?:number;rank_side?:string;rank_by?:string;left?:MethodRuleExpr;right?:MethodRuleExpr;children?:MethodRuleExpr[];ambiguous_source?:string }
 export interface MethodHoldingRule { max_days?:number;min_days?:number;stop_loss_pct?:number;take_profit_pct?:number;trailing_stop_pct?:number }

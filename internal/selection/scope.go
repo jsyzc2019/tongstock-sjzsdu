@@ -64,6 +64,18 @@ func ResolveScope(method *methods.CompiledMethod, market *marketsnapshot.MarketS
 			return false, "scope_excluded", "market cap is above method scope maximum"
 		}
 	}
+	if s.AvgSharesPerHolderMin != nil || s.AvgSharesPerHolderMax != nil {
+		hold, ok := values["avg_shares_per_holder"]
+		if !ok || hold <= 0 {
+			return false, "scope_data_unavailable", "avg shares per holder is required by method scope but missing from current snapshot"
+		}
+		if s.AvgSharesPerHolderMin != nil && hold < *s.AvgSharesPerHolderMin {
+			return false, "scope_excluded", "avg shares per holder is below method scope minimum"
+		}
+		if s.AvgSharesPerHolderMax != nil && hold > *s.AvgSharesPerHolderMax {
+			return false, "scope_excluded", "avg shares per holder is above method scope maximum"
+		}
+	}
 	return true, "", ""
 }
 

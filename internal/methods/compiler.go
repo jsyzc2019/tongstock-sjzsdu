@@ -22,10 +22,13 @@ type Candidate struct {
 	BoardFilter     []string `json:"board_filter,omitempty"`
 	MarketCapMin    *float64 `json:"market_cap_min,omitempty"`
 	MarketCapMax    *float64 `json:"market_cap_max,omitempty"`
-	ExcludeST       bool     `json:"exclude_st,omitempty"`
-	MarketState     []string `json:"market_state,omitempty"`
-	FeatureDeps     []string `json:"feature_deps,omitempty"`
-	MaxPositions    int      `json:"max_positions,omitempty"`
+	// 户均持股区间（股/户），见 Scope 同名字段。
+	AvgSharesPerHolderMin *float64 `json:"avg_shares_per_holder_min,omitempty"`
+	AvgSharesPerHolderMax *float64 `json:"avg_shares_per_holder_max,omitempty"`
+	ExcludeST             bool     `json:"exclude_st,omitempty"`
+	MarketState           []string `json:"market_state,omitempty"`
+	FeatureDeps           []string `json:"feature_deps,omitempty"`
+	MaxPositions          int      `json:"max_positions,omitempty"`
 	Entry           any      `json:"entry_rule"` // JSON object → *Expr
 	Exit            any      `json:"exit_rule,omitempty"`
 	Invalid         any      `json:"invalid_rule,omitempty"`
@@ -65,6 +68,8 @@ func Compile(c *Candidate) (*CompiledMethod, []Diagnostic, error) {
 			BoardFilter:  append([]string{}, c.BoardFilter...),
 			MarketCapMin: c.MarketCapMin,
 			MarketCapMax: c.MarketCapMax,
+			AvgSharesPerHolderMin: c.AvgSharesPerHolderMin,
+			AvgSharesPerHolderMax: c.AvgSharesPerHolderMax,
 			ExcludeST:    c.ExcludeST,
 			MarketState:  append([]string{}, c.MarketState...),
 			FeatureDeps:  append([]string{}, c.FeatureDeps...),
@@ -398,6 +403,8 @@ var builtinIndicatorSet = map[string]bool{
 	"kdj_k": true, "kdj_d": true, "kdj_j": true,
 	"boll_upper": true, "boll_mid": true, "boll_lower": true,
 	"rsi6": true, "rsi14": true, "rsi24": true,
+	// 结构/日内强度（无需窗口参数的精确名）
+	"closepos": true, "upshadow": true, "downshadow": true, "upstreak": true,
 }
 
 func isBuiltinIndicator(name string) bool {
@@ -424,8 +431,64 @@ func isBuiltinIndicator(name string) bool {
 			if _, err := strconv.Atoi(n[len("volma"):]); err == nil {
 				return true
 			}
+		case strings.HasPrefix(n, "volratio"):
+			if _, err := strconv.Atoi(n[len("volratio"):]); err == nil {
+				return true
+			}
 		case strings.HasPrefix(n, "volatility"):
 			if _, err := strconv.Atoi(n[len("volatility"):]); err == nil {
+				return true
+			}
+		case strings.HasPrefix(n, "ema"):
+			if _, err := strconv.Atoi(n[len("ema"):]); err == nil {
+				return true
+			}
+		case strings.HasPrefix(n, "obv"):
+			if _, err := strconv.Atoi(n[len("obv"):]); err == nil {
+				return true
+			}
+		case strings.HasPrefix(n, "amihud"):
+			if _, err := strconv.Atoi(n[len("amihud"):]); err == nil {
+				return true
+			}
+		case strings.HasPrefix(n, "amplitude"):
+			if _, err := strconv.Atoi(n[len("amplitude"):]); err == nil {
+				return true
+			}
+		case strings.HasPrefix(n, "offhigh"):
+			if _, err := strconv.Atoi(n[len("offhigh"):]); err == nil {
+				return true
+			}
+		case strings.HasPrefix(n, "offlow"):
+			if _, err := strconv.Atoi(n[len("offlow"):]); err == nil {
+				return true
+			}
+		case strings.HasPrefix(n, "updays"):
+			if _, err := strconv.Atoi(n[len("updays"):]); err == nil {
+				return true
+			}
+		case strings.HasPrefix(n, "bias"):
+			if _, err := strconv.Atoi(n[len("bias"):]); err == nil {
+				return true
+			}
+		case strings.HasPrefix(n, "cci"):
+			if _, err := strconv.Atoi(n[len("cci"):]); err == nil {
+				return true
+			}
+		case strings.HasPrefix(n, "willr"):
+			if _, err := strconv.Atoi(n[len("willr"):]); err == nil {
+				return true
+			}
+		case strings.HasPrefix(n, "atrp"):
+			if _, err := strconv.Atoi(n[len("atrp"):]); err == nil {
+				return true
+			}
+		case strings.HasPrefix(n, "atr"):
+			if _, err := strconv.Atoi(n[len("atr"):]); err == nil {
+				return true
+			}
+		case strings.HasPrefix(n, "ret"):
+			if _, err := strconv.Atoi(n[len("ret"):]); err == nil {
 				return true
 			}
 		}

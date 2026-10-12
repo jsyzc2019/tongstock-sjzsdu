@@ -11,7 +11,6 @@ import (
 
 	"github.com/sjzsdu/tongstock/internal/adapter/validationrepo"
 	"github.com/sjzsdu/tongstock/internal/methods"
-	"github.com/sjzsdu/tongstock/internal/paradigm"
 	"github.com/sjzsdu/tongstock/internal/validation"
 	"github.com/sjzsdu/tongstock/pkg/config"
 	"github.com/sjzsdu/tongstock/pkg/storage"
@@ -84,48 +83,19 @@ var validateRunCmd = &cobra.Command{
 			return fmt.Errorf("migrate: %w", err)
 		}
 
-		// 3. 自动选择真实数据范围并冻结。验证器后续不再读可变 kline 表。
-		snapshotStore := paradigm.NewDatasetSnapshotStore(db)
+		// 3. 项目红线：数据直读活表 kline，不再冻结快照。
+		liveSource := validationrepo.NewLiveSource(db)
 		dateStart, dateEnd := valStart, valEnd
-		snapshotID := valSnapshot
-		if snapshotID == "" {
+		if dateStart == "" || dateEnd == "" {
 			dateStart, dateEnd, err = resolveRealValidationRange(cmd.Context(), db, valCode, dateStart, dateEnd)
 			if err != nil {
 				return err
 			}
-			universe := []string{valCode}
-			if valBenchmark != "" && valBenchmark != valCode {
-				universe = append(universe, valBenchmark)
-			}
-			snapshotID = fmt.Sprintf("validation-%s-%d", strings.ToLower(valCode), time.Now().UTC().UnixNano())
-			snapshot := &paradigm.DatasetSnapshot{
-				ID: snapshotID, Version: "validation-v1", Universe: universe,
-				DateRange: paradigm.DateRange{Start: dateStart, End: dateEnd},
-				Market:    "A", PriceAdjustment: paradigm.PriceRaw,
-				Description: "validation factory auto-frozen real daily K-lines",
-				CreatedAt:   time.Now().UTC(),
-			}
-			if err := snapshotStore.CreateKlineSnapshot(snapshot, validationrepo.KlineTypeDaily); err != nil {
-				return fmt.Errorf("freeze real validation snapshot: %w", err)
-			}
-		} else {
-			snapshot, err := snapshotStore.GetByID(snapshotID)
-			if err != nil {
-				return fmt.Errorf("load frozen snapshot %s: %w", snapshotID, err)
-			}
-			if err := snapshotStore.VerifyContent(snapshotID); err != nil {
-				return fmt.Errorf("verify frozen snapshot %s: %w", snapshotID, err)
-			}
-			if dateStart == "" {
-				dateStart = snapshot.DateRange.Start
-			}
-			if dateEnd == "" {
-				dateEnd = snapshot.DateRange.End
-			}
 		}
+		snapshotID := validationrepo.LiveSnapshotID
 
-		barProvider := validationrepo.New(db)
-		benchProvider := validationrepo.NewBenchmark(db)
+		barProvider := validation.BarProvider(liveSource)
+		benchProvider := validationrepo.NewBenchmarkFor(liveSource)
 
 		factory, err := validation.NewFactory(validation.FactoryDeps{
 			Method:    m,

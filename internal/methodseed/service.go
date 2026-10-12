@@ -10,6 +10,7 @@ import (
 	"github.com/sjzsdu/tongstock/internal/methodregistry"
 	"github.com/sjzsdu/tongstock/internal/methods"
 	"github.com/sjzsdu/tongstock/internal/paradigm"
+	"github.com/sjzsdu/tongstock/internal/adapter/validationrepo"
 	"github.com/sjzsdu/tongstock/internal/validation"
 )
 
@@ -98,46 +99,19 @@ func (s *Service) Run(ctx context.Context, opts Options) (*Result, error) {
 	return res, nil
 }
 
-// resolveInput 确定快照与验证股票池。
-//   - 提供 SnapshotID：复用已冻结快照，股票池从快照解析（或由 opts.Universe 覆盖）。
-//   - 未提供：要求 Universe + 日期区间，创建一个专用冻结快照。
+// resolveInput 确定数据源与验证股票池。
+// 项目红线：数据永远读活表真实全量，不冻结/不使用快照。SnapshotID 参数仅作
+// 兼容保留并被忽略；数据源身份固定为 validationrepo.LiveSnapshotID。
 func (s *Service) resolveInput(ctx context.Context, opts Options) (*paradigm.DatasetSnapshot, []string, int, error) {
-	if id := strings.TrimSpace(opts.SnapshotID); id != "" {
-		snapshot, err := s.deps.Snapshots.GetByID(id)
-		if err != nil {
-			return nil, nil, 0, fmt.Errorf("load frozen snapshot %s: %w", id, err)
-		}
-		if err := s.deps.Snapshots.VerifyContent(id); err != nil {
-			return nil, nil, 0, fmt.Errorf("verify frozen snapshot %s: %w", id, err)
-		}
-		universe, skipped, err := s.resolveUniverse(ctx, id, opts)
-		if err != nil {
-			return nil, nil, 0, err
-		}
-		return snapshot, universe, skipped, nil
+	snapshot, err := s.deps.Snapshots.GetByID(validationrepo.LiveSnapshotID)
+	if err != nil {
+		return nil, nil, 0, fmt.Errorf("resolve live data source: %w", err)
 	}
-
-	if len(opts.Universe) == 0 {
-		return nil, nil, 0, fmt.Errorf("creating a seed snapshot requires an explicit universe list")
+	universe, skipped, err := s.resolveUniverse(ctx, "", opts)
+	if err != nil {
+		return nil, nil, 0, err
 	}
-	if opts.DateStart == "" || opts.DateEnd == "" {
-		return nil, nil, 0, fmt.Errorf("creating a seed snapshot requires date_start and date_end")
-	}
-	universe := dedupeCodes(opts.Universe)
-	snapshot := &paradigm.DatasetSnapshot{
-		ID:              fmt.Sprintf("methodseed-%d", s.now().UnixNano()),
-		Version:         "methodseed-v1",
-		Universe:        universe,
-		DateRange:       paradigm.DateRange{Start: opts.DateStart, End: opts.DateEnd},
-		Market:          "A",
-		PriceAdjustment: paradigm.PriceRaw,
-		Description:     "built-in seed methods: auto-frozen real daily K-lines",
-		CreatedAt:       s.now(),
-	}
-	if err := s.deps.Snapshots.CreateKlineSnapshot(snapshot, KlineTypeDaily); err != nil {
-		return nil, nil, 0, fmt.Errorf("freeze seed snapshot: %w", err)
-	}
-	return snapshot, universe, 0, nil
+	return snapshot, universe, skipped, nil
 }
 
 func (s *Service) resolveUniverse(ctx context.Context, snapshotID string, opts Options) ([]string, int, error) {
@@ -147,11 +121,8 @@ func (s *Service) resolveUniverse(ctx context.Context, snapshotID string, opts O
 	if s.deps.Universe == nil {
 		return nil, 0, fmt.Errorf("no explicit universe and no universe resolver configured")
 	}
-	maxCodes := opts.MaxCodes
-	if maxCodes <= 0 {
-		maxCodes = 300
-	}
-	codes, skipped, err := s.deps.Universe.ResolveUniverse(ctx, snapshotID, 30, maxCodes)
+	// MaxCodes<=0 表示不设上限：使用快照内全部合格股票。
+	codes, skipped, err := s.deps.Universe.ResolveUniverse(ctx, snapshotID, 30, opts.MaxCodes)
 	if err != nil {
 		return nil, 0, fmt.Errorf("resolve snapshot universe: %w", err)
 	}

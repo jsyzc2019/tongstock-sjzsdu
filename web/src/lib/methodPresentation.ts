@@ -86,22 +86,76 @@ const INDICATOR_LABELS: Record<string, string> = {
   macd_dea: 'DEA',
   macd_hist: 'MACD柱',
   gap_pct: '跳空幅度',
+  return1: '单日收益',
+  closepos: '收盘位置',
+  upshadow: '上影线',
+  downshadow: '下影线',
+  upstreak: '连涨天数',
+  kdj_k: 'KDJ的K值',
+  kdj_d: 'KDJ的D值',
+  kdj_j: 'KDJ的J值',
+  boll_upper: '布林上轨',
+  boll_mid: '布林中轨',
+  boll_lower: '布林下轨',
+  market_cap: '流通市值',
+  total_market_cap: '总市值',
+  float_shares: '流通股本',
 };
 
 function indicatorLabel(name: string): string {
   if (INDICATOR_LABELS[name]) return INDICATOR_LABELS[name];
   const ma = /^ma(\d+)$/.exec(name);
   if (ma) return `${ma[1]}日均线`;
+  const ema = /^ema(\d+)$/.exec(name);
+  if (ema) return `${ema[1]}日EMA`;
   const volma = /^volma(\d+)$/.exec(name);
   if (volma) return `${volma[1]}日均量`;
   const prevhigh = /^prevhigh(\d+)$/.exec(name);
   if (prevhigh) return `前${prevhigh[1]}日最高`;
   const prevlow = /^prevlow(\d+)$/.exec(name);
   if (prevlow) return `前${prevlow[1]}日最低`;
+  const ret = /^ret(\d+)$/.exec(name);
+  if (ret) return `${ret[1]}日收益`;
+  const bias = /^bias(\d+)$/.exec(name);
+  if (bias) return `${bias[1]}日乖离率`;
+  const cci = /^cci(\d+)$/.exec(name);
+  if (cci) return `CCI(${cci[1]})`;
+  const willr = /^willr(\d+)$/.exec(name);
+  if (willr) return `威廉%R(${willr[1]})`;
+  const atrp = /^atrp(\d+)$/.exec(name);
+  if (atrp) return `ATR占比(${atrp[1]})`;
+  const atr = /^atr(\d+)$/.exec(name);
+  if (atr) return `ATR(${atr[1]})`;
+  const volratio = /^volratio(\d+)$/.exec(name);
+  if (volratio) return `量比(前${volratio[1]}日)`;
+  const obv = /^obv(\d+)$/.exec(name);
+  if (obv) return `OBV(${obv[1]}日)`;
+  const amihud = /^amihud(\d+)$/.exec(name);
+  if (amihud) return `非流动性(${amihud[1]}日)`;
+  const amplitude = /^amplitude(\d+)?$/.exec(name);
+  if (amplitude) return amplitude[1] ? `${amplitude[1]}日均振幅` : '当日振幅';
+  const volatility = /^volatility(\d+)$/.exec(name);
+  if (volatility) return `${volatility[1]}日波动率`;
+  const updays = /^updays(\d+)$/.exec(name);
+  if (updays) return `${updays[1]}日上涨天数占比`;
+  const offhigh = /^offhigh(\d+)$/.exec(name);
+  if (offhigh) return `距前${offhigh[1]}日高点`;
+  const offlow = /^offlow(\d+)$/.exec(name);
+  if (offlow) return `距前${offlow[1]}日低点`;
   return name;
 }
 
 const CMP_LABELS: Record<string, string> = { gt: '>', gte: '≥', lt: '<', lte: '≤', eq: '=' };
+
+/** 这些指标是 0-1 的比率口径，展示时应渲染成百分比而不是 0.02 这种小数。 */
+const PERCENT_INDICATORS = new Set([
+  'gap_pct', 'return1', 'turnover_rate', 'closepos',
+]);
+
+function isPercentIndicator(name: string): boolean {
+  if (PERCENT_INDICATORS.has(name)) return true;
+  return /^(ret|bias|volatility|atrp|offhigh|offlow|updays|amplitude|volratio)(\d+)?$/.test(name);
+}
 
 function numberText(v: number): string {
   return Number.isInteger(v) ? String(v) : String(Math.round(v * 1000) / 1000);
@@ -117,7 +171,14 @@ export function formatRuleExpr(expr?: MethodRuleExpr): string {
       return numberText(expr.value ?? 0);
     case 'compare': {
       const op = CMP_LABELS[expr.op ?? ''] ?? expr.op ?? '?';
-      return `${formatRuleExpr(expr.left)} ${op} ${formatRuleExpr(expr.right)}`;
+      const left = formatRuleExpr(expr.left);
+      const rightRaw = expr.right;
+      // 左侧是比率型指标时，右侧常量按百分比展示（0.02 → 2%）。
+      const right = rightRaw?.type === 'constant' && expr.left?.type === 'indicator'
+        && isPercentIndicator(expr.left.indicator ?? '')
+        ? `${((rightRaw.value ?? 0) * 100).toFixed(numberIsFractional(rightRaw.value)).replace(/\.0$/, '')}%`
+        : formatRuleExpr(rightRaw);
+      return `${left} ${op} ${right}`;
     }
     case 'and':
       return (expr.children ?? []).map((c) => formatRuleExpr(c)).filter(Boolean).map((s) => `(${s})`).join(' 且 ') || '未记录条件';
@@ -165,6 +226,26 @@ function trimPct(v: number): string {
   return String(Math.round(v * 10000) / 100);
 }
 
+function numberIsFractional(v?: number): number {
+  const abs = Math.abs(v ?? 0);
+  return abs > 0 && abs < 1 ? 1 : 0;
+}
+
+/** 一句话大白话：这个方法到底怎么买卖。规则缺失时回退注册摘要。 */
+export function plainSummary(method: MethodCard): string {
+  const rule = entryRuleText(method);
+  const parts: string[] = [];
+  if (rule && rule !== '未记录条件') parts.push(`符合「${rule}」时买入`);
+  else if (method.entry_summary) return method.entry_summary;
+  else parts.push('入场规则未记录');
+  const pct = method.rules?.position?.pct_equity;
+  if (pct !== undefined && pct > 0) parts.push(`单次买入用约 ${(pct * 100).toFixed(0)}% 仓位`);
+  const holding = method.rules?.holding;
+  if (holding?.max_days) parts.push(`最多持有 ${holding.max_days} 个交易日`);
+  else if (method.holding_period) parts.push(`持有 ${method.holding_period}`);
+  return parts.join('，');
+}
+
 /**
  * 选股引擎只持有当日冻结特征快照；与后端 hasTemporal 保持同一口径，
  * 只看入场规则——入场规则含 cross/in_window 时引擎会整方法排除。
@@ -186,6 +267,10 @@ export function scopeLabel(method: MethodCard): string {
     const min = scope.market_cap_min === undefined ? '不限' : `${scope.market_cap_min}亿`;
     const max = scope.market_cap_max === undefined ? '不限' : `${scope.market_cap_max}亿`;
     parts.push(`市值 ${min}–${max}`);
+  }
+  if (scope.avg_shares_per_holder_min !== undefined || scope.avg_shares_per_holder_max !== undefined) {
+    const fmt = (v?: number) => (v === undefined ? '不限' : v >= 10000 ? `${Math.round(v / 10000)}万股` : `${v}股`);
+    parts.push(`户均持股 ${fmt(scope.avg_shares_per_holder_min)}–${fmt(scope.avg_shares_per_holder_max)}`);
   }
   if (scope.board_filter?.length) parts.push(scope.board_filter.join('、'));
   if (scope.exclude_st) parts.push('排除 ST');

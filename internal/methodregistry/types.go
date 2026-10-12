@@ -195,4 +195,7 @@ type Repository interface {
 	Get(context.Context, string) (*Method, error)
 	Query(context.Context, Query) ([]*Method, error)
 	ListAudit(context.Context, string) ([]AuditEvent, error)
+	// Delete 移除方法本体，但必须在同一事务里先写入终止审计事件，
+	// 保证「为什么被删」在方法行消失后仍可追溯。
+	Delete(ctx context.Context, id string, event AuditEvent) error
 }

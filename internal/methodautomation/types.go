@@ -25,7 +25,7 @@ type Request struct {
 	HoldDays []int
 	// SearchBudget 每个持有期的模板搜索预算；0 = 24。
 	SearchBudget int
-	// MaxCodes 从快照解析股票池时的上限；0 = 300。
+	// MaxCodes 从快照解析股票池时的上限；<=0 表示不设上限（全部合格股票）。
 	MaxCodes int
 }
 

@@ -22,6 +22,12 @@ func SeedCandidates() []SeedCandidate {
 		{Key: "ma_alignment", Rationale: "均线多头排列：短中长期均线依次向上，代表趋势结构完好。", Candidate: seedMAAlignment()},
 		{Key: "macd_bull", Rationale: "MACD 多头：DIF 位于 DEA 上方且柱状为正，代表中期动能偏多。", Candidate: seedMACDBull()},
 		{Key: "volume_breakout", Rationale: "量价突破：收盘创 20 日新高且成交量高于 20 日均量，代表放量突破。", Candidate: seedVolumeBreakout()},
+		{Key: "rsi_oversold", Rationale: "超卖反转：RSI(14) 低于 30 的经典超卖买入，RSI 修复到 50 离场的均值回归。", Candidate: seedRSIOversold()},
+		{Key: "trend_pullback", Rationale: "趋势回踩：收盘在 20 日线上，且 5 日乖离率小幅为负（回踩 5 日线），顺势低吸。", Candidate: seedTrendPullback()},
+		{Key: "low_vol_uptrend", Rationale: "低波动趋势：20 日波动率低于 2% 且站在 20 日线上，低波动异象叠加短期趋势过滤。", Candidate: seedLowVolUptrend()},
+		{Key: "boll_lower_bounce", Rationale: "布林下轨承接：触及布林下轨但收盘收回当日高位，显示买盘承接后的均值回归。", Candidate: seedBollLowerBounce()},
+		{Key: "kdj_low_uptrend", Rationale: "KDJ 低位承接：J 值小于 0 且 K 值低于 30 的极端超卖，当日收在振幅高位显示承接时介入。", Candidate: seedKDJLowUptrend()},
+		{Key: "bias20_reversal", Rationale: "乖离超跌反转：20 日乖离率低于 -12% 且当日收在振幅高位，博弈超跌反弹。", Candidate: seedBias20Reversal()},
 	}
 }
 
@@ -105,6 +111,170 @@ func seedVolumeBreakout() *Candidate {
 			},
 		},
 		Exit: compare("lt", indicator("close"), indicator("ma10")),
+	}
+}
+
+func seedRSIOversold() *Candidate {
+	pct := 0.10
+	stopLoss := -0.08
+	takeProfit := 0.20
+	return &Candidate{
+		Name:           "超卖反转",
+		Description:    "RSI(14) 低于 30 的超卖状态买入，RSI 修复到 50 或触发止损/止盈离场。",
+		SourceKind:     "structured",
+		Universe:       "universe_usable",
+		FeatureDeps:    []string{"rsi14"},
+		PositionMode:   "pct_equity",
+		PositionPct:    &pct,
+		HoldingMaxDays: 20,
+		HoldingMinDays: 3,
+		StopLossPct:    &stopLoss,
+		TakeProfitPct:  &takeProfit,
+		Entry:          compare("lt", indicator("rsi14"), constant(30)),
+		Exit:           compare("gt", indicator("rsi14"), constant(50)),
+	}
+}
+
+func seedTrendPullback() *Candidate {
+	pct := 0.10
+	stopLoss := -0.08
+	takeProfit := 0.25
+	return &Candidate{
+		Name:           "趋势回踩",
+		Description:    "收盘站在 20 日线上（趋势向上），且 5 日乖离率介于 -3% 与 0 之间（回踩至 5 日线下方但不深）时低吸；乖离率回到 +2% 或跌破 20 日线离场。",
+		SourceKind:     "structured",
+		Universe:       "universe_usable",
+		FeatureDeps:    []string{"close", "ma20", "bias5"},
+		PositionMode:   "pct_equity",
+		PositionPct:    &pct,
+		HoldingMaxDays: 25,
+		HoldingMinDays: 3,
+		StopLossPct:    &stopLoss,
+		TakeProfitPct:  &takeProfit,
+		Entry: map[string]any{
+			"type": "and",
+			"children": []any{
+				compare("gt", indicator("close"), indicator("ma20")),
+				compare("gt", indicator("bias5"), constant(-0.03)),
+				compare("lt", indicator("bias5"), constant(0)),
+			},
+		},
+		Exit: map[string]any{
+			"type": "or",
+			"children": []any{
+				compare("gt", indicator("bias5"), constant(0.02)),
+				compare("lt", indicator("close"), indicator("ma20")),
+			},
+		},
+	}
+}
+
+func seedLowVolUptrend() *Candidate {
+	pct := 0.10
+	stopLoss := -0.08
+	takeProfit := 0.20
+	return &Candidate{
+		Name:           "低波动趋势",
+		Description:    "20 日日波动率低于 2% 且收盘站在 20 日线上（低波动异象 + 短期趋势过滤）时持有；跌破 20 日线离场。",
+		SourceKind:     "structured",
+		Universe:       "universe_usable",
+		FeatureDeps:    []string{"volatility20", "close", "ma20"},
+		PositionMode:   "pct_equity",
+		PositionPct:    &pct,
+		HoldingMaxDays: 30,
+		HoldingMinDays: 3,
+		StopLossPct:    &stopLoss,
+		TakeProfitPct:  &takeProfit,
+		Entry: map[string]any{
+			"type": "and",
+			"children": []any{
+				compare("lt", indicator("volatility20"), constant(0.02)),
+				compare("gt", indicator("close"), indicator("ma20")),
+			},
+		},
+		Exit: compare("lt", indicator("close"), indicator("ma20")),
+	}
+}
+
+func seedBollLowerBounce() *Candidate {
+	pct := 0.10
+	stopLoss := -0.08
+	takeProfit := 0.15
+	return &Candidate{
+		Name:           "布林下轨承接",
+		Description:    "收盘触及布林(20,2)下轨、但收在当日振幅上 70% 以上（下影承接）时介入；回到中轨即离场。",
+		SourceKind:     "structured",
+		Universe:       "universe_usable",
+		FeatureDeps:    []string{"close", "boll_lower", "boll_mid", "closepos"},
+		PositionMode:   "pct_equity",
+		PositionPct:    &pct,
+		HoldingMaxDays: 15,
+		HoldingMinDays: 2,
+		StopLossPct:    &stopLoss,
+		TakeProfitPct:  &takeProfit,
+		Entry: map[string]any{
+			"type": "and",
+			"children": []any{
+				compare("lt", indicator("close"), indicator("boll_lower")),
+				compare("gt", indicator("closepos"), constant(0.7)),
+			},
+		},
+		Exit: compare("gt", indicator("close"), indicator("boll_mid")),
+	}
+}
+
+func seedKDJLowUptrend() *Candidate {
+	pct := 0.10
+	stopLoss := -0.08
+	takeProfit := 0.20
+	return &Candidate{
+		Name:           "KDJ 低位承接",
+		Description:    "KDJ J 值小于 0 且 K 值低于 30（极端超卖），且当日收在振幅上 60% 以上（承接迹象）时介入；J 值回到 80 离场。",
+		SourceKind:     "structured",
+		Universe:       "universe_usable",
+		FeatureDeps:    []string{"kdj_j", "kdj_k", "closepos"},
+		PositionMode:   "pct_equity",
+		PositionPct:    &pct,
+		HoldingMaxDays: 20,
+		HoldingMinDays: 3,
+		StopLossPct:    &stopLoss,
+		TakeProfitPct:  &takeProfit,
+		Entry: map[string]any{
+			"type": "and",
+			"children": []any{
+				compare("lt", indicator("kdj_j"), constant(0)),
+				compare("lt", indicator("kdj_k"), constant(30)),
+				compare("gt", indicator("closepos"), constant(0.6)),
+			},
+		},
+		Exit: compare("gt", indicator("kdj_j"), constant(80)),
+	}
+}
+
+func seedBias20Reversal() *Candidate {
+	pct := 0.10
+	stopLoss := -0.08
+	takeProfit := 0.20
+	return &Candidate{
+		Name:           "乖离超跌反转",
+		Description:    "20 日乖离率低于 -12%（深度超跌）且当日收在振幅上 60% 以上（企稳迹象）时博弈反弹；乖离率修复到 -5% 离场。",
+		SourceKind:     "structured",
+		Universe:       "universe_usable",
+		FeatureDeps:    []string{"bias20", "closepos"},
+		PositionMode:   "pct_equity",
+		PositionPct:    &pct,
+		HoldingMaxDays: 20,
+		HoldingMinDays: 2,
+		StopLossPct:    &stopLoss,
+		TakeProfitPct:  &takeProfit,
+		Entry: map[string]any{
+			"type": "and",
+			"children": []any{
+				compare("lt", indicator("bias20"), constant(-0.12)),
+				compare("gt", indicator("closepos"), constant(0.6)),
+			},
+		},
+		Exit: compare("gt", indicator("bias20"), constant(-0.05)),
 	}
 }
 

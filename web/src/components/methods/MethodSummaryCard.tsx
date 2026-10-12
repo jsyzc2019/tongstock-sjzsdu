@@ -3,8 +3,10 @@ import {
   BarChartOutlined,
   CheckCircleOutlined,
   ClockCircleOutlined,
+  DeleteOutlined,
+  TeamOutlined,
 } from '@ant-design/icons';
-import { Button, Card, Space, Statistic, Tag, Tooltip, Typography } from 'antd';
+import { Button, Card, Popconfirm, Space, Statistic, Tag, Tooltip, Typography } from 'antd';
 import type { MethodCard } from '../../api/client';
 import {
   PENDING_VALUE,
@@ -17,6 +19,7 @@ import {
   methodStatusLabel,
   methodUnavailableReason,
   outcomeLabel,
+  plainSummary,
   scopeLabel,
 } from '../../lib/methodPresentation';
 
@@ -34,9 +37,11 @@ interface MethodSummaryCardProps {
   screening: boolean;
   onScreen: (method: MethodCard) => void;
   onValidation: (method: MethodCard) => void;
+  onDelete: (method: MethodCard) => void;
+  onPool: (method: MethodCard) => void;
 }
 
-export default function MethodSummaryCard({ method, screening, onScreen, onValidation }: MethodSummaryCardProps) {
+export default function MethodSummaryCard({ method, screening, onScreen, onValidation, onDelete, onPool }: MethodSummaryCardProps) {
   const canScreen = methodCanScreen(method);
   const unavailableReason = methodUnavailableReason(method);
   const evidence = method.evidence;
@@ -95,7 +100,12 @@ export default function MethodSummaryCard({ method, screening, onScreen, onValid
               <Tag>{methodStatusLabel(method.status)}</Tag>
               {canScreen && <Tag icon={<CheckCircleOutlined />} color="green">可用于今日筛选</Tag>}
             </Space>
-            <Title level={3} className="method-summary__rule">{method.entry_summary}</Title>
+            <Title level={3} className="method-summary__rule">{plainSummary(method)}</Title>
+            {method.entry_summary && method.entry_summary !== plainSummary(method) && (
+              <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>
+                研究假设：{method.entry_summary}
+              </Text>
+            )}
             {rule && (
               <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>
                 执行规则：{rule}
@@ -128,6 +138,19 @@ export default function MethodSummaryCard({ method, screening, onScreen, onValid
             <Button icon={<ClockCircleOutlined />} onClick={() => onValidation(method)}>
               查看验证记录
             </Button>
+            <Button icon={<TeamOutlined />} onClick={() => onPool(method)}>
+              查看股票池
+            </Button>
+            <Popconfirm
+              title="删除这个方法？"
+              description={`「${method.name}」将从方法列表移除；删除原因会写入审计记录，历史验证数据随方法一并删除。`}
+              okText="确认删除"
+              okButtonProps={{ danger: true }}
+              cancelText="取消"
+              onConfirm={() => onDelete(method)}
+            >
+              <Button danger icon={<DeleteOutlined />}>删除</Button>
+            </Popconfirm>
             {!canScreen && unavailableReason && <Text type="secondary">{unavailableReason}</Text>}
           </Space>
         </Space>

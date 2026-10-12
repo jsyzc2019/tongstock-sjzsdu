@@ -10,6 +10,7 @@ import (
 	"github.com/sjzsdu/tongstock/internal/adapter/selectionrepo"
 	"github.com/sjzsdu/tongstock/internal/automation"
 	"github.com/sjzsdu/tongstock/internal/ledger"
+	"github.com/sjzsdu/tongstock/internal/marketsnapshot"
 	"github.com/sjzsdu/tongstock/internal/positiondecision"
 	"github.com/sjzsdu/tongstock/internal/selection"
 	"github.com/sjzsdu/tongstock/pkg/config"
@@ -110,6 +111,12 @@ func wireAutomation() (*storage.Storage, *marketsnapshotrepo.SQLiteRepository, *
 	ar, _ := automationrepo.New(s)
 	tr, _ := trading.New(s)
 	se, _ := selection.NewEngine(sn, mr, sr)
+	// 与服务端同口径：缺最新特征集（含 gap_pct）的旧快照就地重建，避免
+	// 每日闭环因特征缺失把方法整批打成 insufficient_data。
+	se.SetFeatureEnsurer(&marketsnapshot.FeatureEnsurer{
+		Builder: &marketsnapshot.Builder{}, Snapshots: sn,
+		Features: marketsnapshotrepo.NewSQLiteFeatureEngine(s),
+	})
 	pe, _ := positiondecision.NewEngine(sn, tr, mr, pr)
 	l, err := ledger.NewSQLiteSignalLedger(s)
 	if err != nil {

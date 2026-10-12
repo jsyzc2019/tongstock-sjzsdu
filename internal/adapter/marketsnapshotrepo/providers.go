@@ -2,6 +2,7 @@ package marketsnapshotrepo
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -308,71 +309,161 @@ func NewSQLiteFeatureEngine(db *storage.Storage) *SQLiteFeatureEngine {
 // Compute 对 {date, codes, features} 批量计算值。
 // 实现策略：对每只 code，读取截至 date 的 250 条日线，用 methods.EvalValue 计算每支指标。
 // 这是 deterministic 的（只要 kline 不变结果不变），满足特征快照哈希。
+// scope 类特征（Category=="scope"）没有 point-in-time 序列，直接从 stockinfo 当前值读取。
 func (e *SQLiteFeatureEngine) Compute(date string, codes []string, features []marketsnapshot.FeatureSpec) (map[string]map[string]float64, error) {
 	out := map[string]map[string]float64{}
 	queryDate := strings.ReplaceAll(date, "-", "")
-	needMarketCap := false
+
+	// 分离 scope 特征（从 stockinfo 取）与 K 线派生特征（计算）。
+	scopeCols := map[string]string{
+		"market_cap":       "market_cap",
+		"total_market_cap": "total_market_cap",
+		"turnover_rate":    "turnover_rate",
+		"float_shares":     "liu_tong_gu_ben",
+	}
+	var scopeFeatures []marketsnapshot.FeatureSpec
+	var klineFeatures []marketsnapshot.FeatureSpec
 	for _, f := range features {
-		if f.Name == "market_cap" {
-			needMarketCap = true
+		if f.Category == "scope" {
+			scopeFeatures = append(scopeFeatures, f)
+		} else {
+			klineFeatures = append(klineFeatures, f)
+		}
+	}
+
+	// 批量加载 scope 特征值（一次查询，避免逐 code）。
+	scopeValues := map[string]map[string]float64{}
+	if len(scopeFeatures) > 0 {
+		var cols []string
+		var names []string
+		for _, f := range scopeFeatures {
+			if col, ok := scopeCols[f.Name]; ok {
+				cols = append(cols, col)
+				names = append(names, f.Name)
+			}
+		}
+		if len(cols) > 0 {
+			rows, err := e.db.DB().Query(`SELECT code, ` + strings.Join(cols, ", ") + ` FROM stockinfo`)
+			if err != nil {
+				return nil, fmt.Errorf("load scope features: %w", err)
+			}
+			for rows.Next() {
+				vals := make([]float64, len(cols))
+				args := make([]any, len(cols))
+				for i := range vals {
+					args[i] = &vals[i]
+				}
+				var code string
+				scanArgs := append([]any{&code}, args...)
+				if err := rows.Scan(scanArgs...); err != nil {
+					rows.Close()
+					return nil, err
+				}
+				perCode := map[string]float64{}
+				for i, name := range names {
+					if vals[i] != 0 {
+						perCode[name] = vals[i]
+					}
+				}
+				scopeValues[code] = perCode
+			}
+			if err := rows.Err(); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			rows.Close()
+		}
+	}
+
+	// 户均持股 = 流通股本(万股)×10000 / 股东户数（finance_snapshot.GuDongRenShu），
+	// 单位 股/户。股东户数来自 TDX 财务协议快照，无 point-in-time 序列，
+	// 与其他 scope 特征一样只用于最新快照筛选。
+	needHolders := false
+	for _, f := range scopeFeatures {
+		if f.Name == "avg_shares_per_holder" {
+			needHolders = true
 			break
 		}
 	}
-	marketCaps := map[string]float64{}
-	if needMarketCap {
-		rows, err := e.db.DB().Query(`SELECT code, market_cap FROM stockinfo WHERE market_cap > 0`)
-		if err != nil {
-			return nil, fmt.Errorf("load current market caps: %w", err)
-		}
-		for rows.Next() {
-			var code string
-			var cap float64
-			if err := rows.Scan(&code, &cap); err != nil {
-				rows.Close()
-				return nil, err
+	if needHolders {
+		holders := map[string]float64{}
+		rows, err := e.db.DB().Query(`SELECT code, payload FROM finance_snapshot`)
+		if err == nil {
+			for rows.Next() {
+				var c, raw string
+				if rows.Scan(&c, &raw) != nil {
+					continue
+				}
+				var payload struct {
+					GuDongRenShu float64 `json:"GuDongRenShu"`
+				}
+				if json.Unmarshal([]byte(raw), &payload) == nil && payload.GuDongRenShu > 0 {
+					holders[c] = payload.GuDongRenShu
+				}
 			}
-			marketCaps[code] = cap
-		}
-		if err := rows.Err(); err != nil {
 			rows.Close()
-			return nil, err
+		} else {
+			return nil, fmt.Errorf("load holders for avg_shares_per_holder: %w", err)
 		}
-		rows.Close()
-	}
-	for _, code := range codes {
-		// 读取 250 行前复权日线；若不足就取所有
-		rows, err := e.db.DB().Query(`SELECT date, open, high, low, close, volume, amount
-			FROM kline WHERE code = ? AND ktype = 9 AND date <= ? ORDER BY date DESC LIMIT 260`, code, queryDate)
+		shares := map[string]float64{}
+		rows2, err := e.db.DB().Query(`SELECT code, liu_tong_gu_ben FROM stockinfo WHERE liu_tong_gu_ben > 0`)
 		if err != nil {
+			return nil, fmt.Errorf("load float shares for avg_shares_per_holder: %w", err)
+		}
+		for rows2.Next() {
+			var c string
+			var v float64
+			if rows2.Scan(&c, &v) == nil {
+				shares[c] = v
+			}
+		}
+		rows2.Close()
+		if err := rows2.Err(); err != nil {
 			return nil, err
 		}
-		var bars []methods.Bar
-		for rows.Next() {
-			var b methods.Bar
-			if err := rows.Scan(&b.Date, &b.Open, &b.High, &b.Low, &b.Close, &b.Volume, &b.Amount); err != nil {
-				rows.Close()
+		for c, sh := range shares {
+			if h := holders[c]; h > 0 {
+				if scopeValues[c] == nil {
+					scopeValues[c] = map[string]float64{}
+				}
+				scopeValues[c]["avg_shares_per_holder"] = sh * 10000 / h
+			}
+		}
+	}
+
+	for _, code := range codes {
+		perCode := map[string]float64{}
+		for name, v := range scopeValues[code] {
+			perCode[name] = v
+		}
+		// K 线派生特征需要真实日线。
+		if len(klineFeatures) > 0 {
+			rows, err := e.db.DB().Query(`SELECT date, open, high, low, close, volume, amount
+				FROM kline WHERE code = ? AND ktype = 9 AND date <= ? ORDER BY date DESC LIMIT 260`, code, queryDate)
+			if err != nil {
 				return nil, err
 			}
-			bars = append(bars, b)
-		}
-		rows.Close()
-		// reverse: oldest first
-		for i, j := 0, len(bars)-1; i < j; i, j = i+1, j-1 {
-			bars[i], bars[j] = bars[j], bars[i]
-		}
-		if len(bars) == 0 {
-			continue
-		}
-		perCode := map[string]float64{}
-		if cap, ok := marketCaps[code]; ok {
-			perCode["market_cap"] = cap
-		}
-		// 构造 env，用 methods 内部的 evalValue 函数计算
-		// 由于 evalValue 是 unexported，用显式 switch 覆盖内建指标：
-		for _, f := range features {
-			v, ok := computeBuiltinIndicator(f.Name, bars)
-			if ok {
-				perCode[f.Name] = v
+			var bars []methods.Bar
+			for rows.Next() {
+				var b methods.Bar
+				if err := rows.Scan(&b.Date, &b.Open, &b.High, &b.Low, &b.Close, &b.Volume, &b.Amount); err != nil {
+					rows.Close()
+					return nil, err
+				}
+				bars = append(bars, b)
+			}
+			rows.Close()
+			// reverse: oldest first
+			for i, j := 0, len(bars)-1; i < j; i, j = i+1, j-1 {
+				bars[i], bars[j] = bars[j], bars[i]
+			}
+			if len(bars) > 0 {
+				for _, f := range klineFeatures {
+					v, ok := computeBuiltinIndicator(f.Name, bars)
+					if ok {
+						perCode[f.Name] = v
+					}
+				}
 			}
 		}
 		out[code] = perCode
@@ -400,4 +491,35 @@ func dayDiff(a, b string) int {
 		return 0
 	}
 	return d
+}
+
+// NewStockNameReader 返回 code→name 批量补全函数（读 stockinfo 当前值）。
+// 用于方法股票池等展示场景：市场快照持久化不携带 name，重载后需要补全。
+// 未命中的 code 不出现在返回 map 中。
+func NewStockNameReader(db *storage.Storage) func(codes []string) map[string]string {
+	return func(codes []string) map[string]string {
+		if len(codes) == 0 {
+			return nil
+		}
+		marks := make([]string, len(codes))
+		args := make([]any, len(codes))
+		for i, c := range codes {
+			marks[i] = "?"
+			args[i] = c
+		}
+		rows, err := db.DB().Query(
+			`SELECT code, name FROM stockinfo WHERE code IN (`+strings.Join(marks, ",")+`)`, args...)
+		if err != nil {
+			return nil
+		}
+		defer rows.Close()
+		out := map[string]string{}
+		for rows.Next() {
+			var code, name string
+			if rows.Scan(&code, &name) == nil {
+				out[code] = name
+			}
+		}
+		return out
+	}
 }

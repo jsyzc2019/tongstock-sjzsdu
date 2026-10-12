@@ -120,10 +120,24 @@ func (e *Engine) feature(id, marketID string) (*marketsnapshot.FeatureSnapshot, 
 	if err != nil {
 		return nil, err
 	}
+	// 与 selection.pickFeature 同口径：优先覆盖全量默认 DSL 特征集的快照，
+	// 避免最新优先选中升级前缺 gap_pct/return1 的旧快照；没有覆盖者时回退
+	// 到首个 ready 快照（兼容窄特征集的存量/测试快照）。
+	required := marketsnapshot.FeatureNames(marketsnapshot.DefaultDslFeatures())
+	fallback := ""
 	for _, x := range xs {
-		if x.Status == marketsnapshot.StatusReady && x.LeakChecked {
+		if x == nil || x.Status != marketsnapshot.StatusReady || !x.LeakChecked {
+			continue
+		}
+		if len(x.MissingFeatures(required)) == 0 {
 			return e.snapshots.LoadFeatureSnapshot(x.ID, true)
 		}
+		if fallback == "" {
+			fallback = x.ID
+		}
+	}
+	if fallback != "" {
+		return e.snapshots.LoadFeatureSnapshot(fallback, true)
 	}
 	return nil, fmt.Errorf("no eligible feature snapshot")
 }

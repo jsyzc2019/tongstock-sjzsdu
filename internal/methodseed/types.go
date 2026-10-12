@@ -17,7 +17,7 @@ type Options struct {
 	// DateStart / DateEnd 验证区间；空 = 由 UniverseSource 的默认区间。
 	DateStart string
 	DateEnd   string
-	// MaxCodes 解析股票池时的上限（0 = 使用默认）。
+	// MaxCodes 解析股票池时的上限（<=0 表示不设上限，使用全部合格股票）。
 	MaxCodes int
 	// Keys 只载入指定 key 的种子方法；空 = 全部。
 	Keys []string

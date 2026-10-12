@@ -26,6 +26,7 @@ func (s *Server) registerMethodMarketRoutes(api *gin.RouterGroup) {
 	api.GET("/methods/reject-stats", s.handleMethodRejectStats)
 	api.GET("/methods/forward-health", s.handleMethodForwardHealth)
 	api.POST("/methods/:id/feedback", s.handleMethodFeedback)
+	api.GET("/methods/:id/pool", s.handleMethodPool)
 	api.POST("/selections/run", s.handleSelectionRunCreate)
 }
 
@@ -412,4 +413,40 @@ func latestFrozenSnapshot(snapshots readySnapshotLister) (string, error) {
 		}
 	}
 	return "", errors.New("没有已冻结就绪的市场快照，请先完成数据同步并冻结快照")
+}
+
+// handleMethodPool 返回一个方法在当前冻结快照上的适用股票池全量判定。
+// 只读诊断视图：允许查看任意方法（含 rejected），因为「圈了哪些股票」与证据状态无关。
+func (s *Server) handleMethodPool(c *gin.Context) {
+	if s.selectionEngine == nil {
+		WriteError(c, http.StatusServiceUnavailable, "selection_unavailable", "选股引擎不可用")
+		return
+	}
+	id := strings.TrimSpace(c.Param("id"))
+	if id == "" {
+		WriteError(c, http.StatusBadRequest, "invalid_request", "method id 不能为空")
+		return
+	}
+	marketID := strings.TrimSpace(c.Query("market_snapshot_id"))
+	if marketID == "" {
+		if s.selectionSnapshots == nil {
+			WriteError(c, http.StatusBadRequest, "invalid_request", "market_snapshot_id 必填")
+			return
+		}
+		latest, err := latestFrozenSnapshot(s.selectionSnapshots)
+		if err != nil {
+			WriteError(c, http.StatusConflict, "no_ready_snapshot", err.Error())
+			return
+		}
+		marketID = latest
+	}
+	pool, err := s.selectionEngine.MethodPool(c.Request.Context(), selection.Request{
+		MarketSnapshotID: marketID,
+		MethodIDs:        []string{id},
+	})
+	if err != nil {
+		WriteError(c, http.StatusUnprocessableEntity, "method_pool_failed", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, pool)
 }

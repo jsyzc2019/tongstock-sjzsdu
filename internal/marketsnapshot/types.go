@@ -274,8 +274,53 @@ func DefaultDslFeatures() []FeatureSpec {
 		{Name: "macd_hist", Category: "macd", Window: 35, Description: "MACD 柱状"},
 		{Name: "volma5", Category: "volume", Window: 5, Description: "5 日均量"},
 		{Name: "volma20", Category: "volume", Window: 20, Description: "20 日均量"},
+		{Name: "volratio5", Category: "volume", Window: 6, Description: "量比：当日成交量/前5日均量"},
+		{Name: "volratio20", Category: "volume", Window: 21, Description: "量比：当日成交量/前20日均量"},
+		{Name: "obv20", Category: "volume", Window: 21, Description: "20 日能量潮净额"},
 		{Name: "prevhigh20", Category: "breakout", Window: 20, Description: "前 20 日收盘最高（不含当日）"},
 		{Name: "prevlow20", Category: "breakout", Window: 20, Description: "前 20 日收盘最低（不含当日）"},
+		{Name: "prevhigh60", Category: "breakout", Window: 60, Description: "前 60 日收盘最高"},
+		{Name: "prevlow60", Category: "breakout", Window: 60, Description: "前 60 日收盘最低"},
+		// 动量/反转族：ret{n} 与 return1 同源，窗口化便于挖掘不持有期的动量。
+		{Name: "ret5", Category: "momentum", Window: 6, Description: "5 日收益"},
+		{Name: "ret10", Category: "momentum", Window: 11, Description: "10 日收益"},
+		{Name: "ret20", Category: "momentum", Window: 21, Description: "20 日收益"},
+		{Name: "ret60", Category: "momentum", Window: 61, Description: "60 日收益"},
+		{Name: "ret120", Category: "momentum", Window: 121, Description: "120 日收益"},
+		{Name: "ema12", Category: "ma", Window: 12, Description: "12 日指数均线"},
+		{Name: "ema26", Category: "ma", Window: 26, Description: "26 日指数均线"},
+		{Name: "bias5", Category: "ma", Window: 5, Description: "5 日乖离率"},
+		{Name: "bias10", Category: "ma", Window: 10, Description: "10 日乖离率"},
+		{Name: "bias20", Category: "ma", Window: 20, Description: "20 日乖离率"},
+		// 震荡/超买超卖族：KDJ/CCI/威廉/RSI 提供不同平滑口径的摆动特征。
+		{Name: "kdj_k", Category: "oscillator", Window: 9, Description: "KDJ 的 K 值"},
+		{Name: "kdj_d", Category: "oscillator", Window: 9, Description: "KDJ 的 D 值"},
+		{Name: "kdj_j", Category: "oscillator", Window: 9, Description: "KDJ 的 J 值"},
+		{Name: "boll_upper", Category: "volatility", Window: 20, Description: "布林上轨"},
+		{Name: "boll_mid", Category: "volatility", Window: 20, Description: "布林中轨"},
+		{Name: "boll_lower", Category: "volatility", Window: 20, Description: "布林下轨"},
+		{Name: "cci14", Category: "oscillator", Window: 14, Description: "CCI(14)"},
+		{Name: "willr20", Category: "oscillator", Window: 20, Description: "威廉 %R(20)"},
+		// 波动/风险族：ATR 与波动率给出绝对与相对两种波动度量。
+		{Name: "atr14", Category: "volatility", Window: 14, Description: "14 日平均真实波幅"},
+		{Name: "atrp14", Category: "volatility", Window: 14, Description: "14 日 ATR 占收盘价比例"},
+		{Name: "volatility5", Category: "volatility", Window: 6, Description: "5 日收益波动率"},
+		{Name: "volatility20", Category: "volatility", Window: 21, Description: "20 日收益波动率"},
+		{Name: "volatility60", Category: "volatility", Window: 61, Description: "60 日收益波动率"},
+		{Name: "amihud20", Category: "liquidity", Window: 21, Description: "20 日 Amihud 非流动性因子（×1e9）"},
+		// 结构/日内强度族：收盘位置、影线、连涨、上涨天数占比。
+		{Name: "amplitude1", Category: "structure", Window: 2, Description: "当日振幅 (H-L)/前收"},
+		{Name: "closepos", Category: "structure", Window: 1, Description: "收盘在当日高低区间的位置"},
+		{Name: "upshadow", Category: "structure", Window: 2, Description: "上影线占前收比例"},
+		{Name: "downshadow", Category: "structure", Window: 2, Description: "下影线占前收比例"},
+		{Name: "upstreak", Category: "structure", Window: 2, Description: "连涨天数"},
+		{Name: "updays20", Category: "structure", Window: 21, Description: "20 日上涨天数占比"},
+		{Name: "updays60", Category: "structure", Window: 61, Description: "60 日上涨天数占比"},
+		// 距离极值族：相对前 N 日高/低点的百分比距离，度量超买超卖与突破空间。
+		{Name: "offhigh60", Category: "breakout", Window: 61, Description: "距前 60 日高点百分比"},
+		{Name: "offhigh250", Category: "breakout", Window: 251, Description: "距前 250 日高点百分比"},
+		{Name: "offlow60", Category: "breakout", Window: 61, Description: "距前 60 日低点百分比"},
+		{Name: "offlow250", Category: "breakout", Window: 251, Description: "距前 250 日低点百分比"},
 	}
 }
 
@@ -284,5 +329,50 @@ func DefaultDslFeatures() []FeatureSpec {
 // historical validation: stockinfo has no point-in-time market-cap series.
 func LatestSelectionFeatures() []FeatureSpec {
 	features := DefaultDslFeatures()
-	return append([]FeatureSpec{{Name: "market_cap", Category: "scope", Window: 1, Description: "当前流通市值（亿元），仅用于最新快照筛选"}}, features...)
+	return append([]FeatureSpec{
+		{Name: "market_cap", Category: "scope", Window: 1, Description: "当前流通市值（亿元），仅用于最新快照筛选"},
+		{Name: "total_market_cap", Category: "scope", Window: 1, Description: "当前总市值（亿元），仅用于最新快照筛选"},
+		{Name: "turnover_rate", Category: "scope", Window: 1, Description: "当前换手率（%），仅用于最新快照筛选"},
+		{Name: "float_shares", Category: "scope", Window: 1, Description: "当前流通股本（万股），仅用于最新快照筛选"},
+		{Name: "avg_shares_per_holder", Category: "scope", Window: 1, Description: "当前户均持股（流通股本/股东户数，股/户），仅用于最新快照筛选"},
+	}, features...)
+}
+
+// FeatureNames 返回特征规格的名字集合（去重、升序），用于快照覆盖检查。
+func FeatureNames(specs []FeatureSpec) []string {
+	seen := map[string]bool{}
+	for _, s := range specs {
+		if s.Name != "" {
+			seen[s.Name] = true
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for n := range seen {
+		out = append(out, n)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// MissingFeatures 返回 required 中未被本快照物化的名字（去重、升序）。
+// 这是「发现端与选股端特征一致性」的判定点：选股/复用快照前用它过滤升级
+// 前物化的旧快照（如 gap_pct 进入 DefaultDslFeatures 之前的 22 特征集），
+// 避免方法因缺特征整批 insufficient_data。
+func (s *FeatureSnapshot) MissingFeatures(required []string) []string {
+	have := map[string]bool{}
+	if s != nil {
+		for _, f := range s.FeatureIDs {
+			have[f] = true
+		}
+	}
+	out := []string{}
+	seen := map[string]bool{}
+	for _, r := range required {
+		if !have[r] && !seen[r] {
+			seen[r] = true
+			out = append(out, r)
+		}
+	}
+	sort.Strings(out)
+	return out
 }

@@ -58,6 +58,8 @@ func (fakeFeatures) Compute(date string, codes []string, features []marketsnapsh
 type memRepo struct {
 	market  map[string]*marketsnapshot.MarketSnapshot
 	feature map[string]*marketsnapshot.FeatureSnapshot
+	// featureList 模拟真实仓库的 ListFeatureSnapshots（按 built_at 倒序）。
+	featureList []*marketsnapshot.FeatureSnapshot
 }
 
 func newMemRepo() *memRepo {
@@ -91,7 +93,7 @@ func (r *memRepo) LoadFeatureSnapshot(id string, includeValues bool) (*marketsna
 	return r.feature[id], nil
 }
 func (r *memRepo) ListFeatureSnapshots(marketSnapshotID string) ([]*marketsnapshot.FeatureSnapshot, error) {
-	return nil, nil
+	return r.featureList, nil
 }
 
 type fakeSelection struct{}
@@ -144,5 +146,59 @@ func TestRunCompletesWhenUniverseDataLagsFreshnessMax(t *testing.T) {
 	}
 	if res.SelectionRunID == "" {
 		t.Fatalf("selection never ran; steps=%+v", res.Steps)
+	}
+}
+
+// 线上现场（round-3 卡点）：gap_pct/return1 已加入 DefaultDslFeatures，但库内
+// 选股特征快照是升级前物化的（22 个特征、没有 gap_pct）。featureStep 只要看到
+// ready+leak-checked 的快照就复用，导致 auto-gap_up_2pct 这类跳空方法在选股时
+// 整批 insufficient_data: missing features: gap_pct，永远筛不出候选。
+// 期望：旧快照特征集不覆盖最新要求时必须重建，而不是复用。
+func TestRunRebuildsFeatureSnapshotWhenStaleOneMissingGapPct(t *testing.T) {
+	codes := []string{"000001", "000002", "000003"}
+	repo := newMemRepo()
+	// 升级前物化的 22 特征快照：没有 gap_pct/return1（与 fs_54343da8 同形）。
+	stale := &marketsnapshot.FeatureSnapshot{
+		ID: "fs_stale_22", MarketSnapshotID: "market-stale", SnapshotDate: "2026-09-28",
+		FeatureIDs: []string{"close", "open", "high", "low", "volume", "amount",
+			"ma5", "ma10", "ma20", "ma60", "ma120", "ma250",
+			"rsi6", "rsi14", "rsi24", "macd_dif", "macd_dea", "macd_hist",
+			"volma5", "volma20", "prevhigh20", "prevlow20"},
+		FeatureTotal: 22, RowsWritten: 3, LeakChecked: true,
+		Status: marketsnapshot.StatusReady,
+		Values: map[string]map[string]float64{},
+	}
+	repo.feature[stale.ID] = stale
+	repo.featureList = []*marketsnapshot.FeatureSnapshot{stale}
+
+	svc, err := onboarding.NewService(onboarding.Deps{
+		Builder: marketsnapshot.NewBuilder(&fakeUniverse{codes: codes},
+			&fakeWatermarks{majorityDate: "2026-09-28"}, nil),
+		Snapshots: repo,
+		Features:  fakeFeatures{},
+		Selection: fakeSelection{},
+		Freshness: &fakeFreshness{latest: "2026-09-28"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := svc.Run(context.Background(), onboarding.RunOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Status != onboarding.StatusCompleted {
+		t.Fatalf("one-click flow blocked: status=%s reason=%q steps=%+v", res.Status, res.BlockedReason, res.Steps)
+	}
+	if res.FeatureSnapshotID == stale.ID {
+		t.Fatalf("复用了缺少 gap_pct 的旧特征快照 %s（%d 个特征），必须重建：steps=%+v",
+			stale.ID, stale.FeatureTotal, res.Steps)
+	}
+	got := repo.feature[res.FeatureSnapshotID]
+	if got == nil {
+		t.Fatalf("rebuilt feature snapshot %s not persisted; repo=%+v", res.FeatureSnapshotID, repo.feature)
+	}
+	if missing := got.MissingFeatures([]string{"gap_pct"}); len(missing) > 0 {
+		t.Fatalf("rebuilt snapshot still missing %v; FeatureIDs=%v", missing, got.FeatureIDs)
 	}
 }

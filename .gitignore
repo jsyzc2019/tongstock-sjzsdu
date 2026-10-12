@@ -35,3 +35,12 @@ sessions
 .atl/
 .freebuff
 /cli
+
+# Frontend build output (embedded copy lives in pkg/web/dist)
+web/dist/
+
+# Stray root-level node_modules (frontend deps belong to web/)
+/node_modules/
+
+# Local runtime state (manual exports, scratch data)
+/state/

@@ -484,11 +484,8 @@ func (o *Orchestrator) resolveCodes(ctx context.Context, snapshot *paradigm.Data
 	if len(req.Codes) > 0 {
 		return dedupeSorted(req.Codes), nil
 	}
-	maxCodes := req.MaxCodes
-	if maxCodes <= 0 {
-		maxCodes = 300
-	}
-	codes, skipped, err := o.deps.Universe.ResolveUniverse(ctx, snapshot.ID, 30, maxCodes)
+	// MaxCodes<=0 表示不设上限：使用快照内全部合格股票（>=30 根真实日线）。
+	codes, skipped, err := o.deps.Universe.ResolveUniverse(ctx, snapshot.ID, 30, req.MaxCodes)
 	if err != nil {
 		return nil, fmt.Errorf("resolve snapshot universe: %w", err)
 	}

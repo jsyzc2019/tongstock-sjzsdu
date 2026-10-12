@@ -27,6 +27,40 @@ func TestResolveScopeFailsClosedWhenRequiredMarketCapMissing(t *testing.T) {
 	}
 }
 
+func TestResolveScopeAvgSharesPerHolderBounds(t *testing.T) {
+	min, max := 5000.0, 20000.0
+	m := &methods.CompiledMethod{Scope: methods.Scope{AvgSharesPerHolderMin: &min, AvgSharesPerHolderMax: &max}}
+	market := &marketsnapshot.MarketSnapshot{UniverseMembers: []marketsnapshot.UniverseMember{{Code: "000001", Board: "main", Status: "normal", Selected: true}}}
+	if ok, reason, _ := ResolveScope(m, market, "000001", map[string]float64{"avg_shares_per_holder": 8000}); !ok || reason != "" {
+		t.Fatalf("holder value inside bounds should pass: ok=%v reason=%s", ok, reason)
+	}
+	if ok, _, detail := ResolveScope(m, market, "000001", map[string]float64{"avg_shares_per_holder": 4000}); ok {
+		t.Fatalf("holder value below min should be excluded, detail=%s", detail)
+	}
+	if ok, _, detail := ResolveScope(m, market, "000001", map[string]float64{"avg_shares_per_holder": 30000}); ok {
+		t.Fatalf("holder value above max should be excluded, detail=%s", detail)
+	}
+	ok, reason, detail := ResolveScope(m, market, "000001", map[string]float64{})
+	if ok || reason != "scope_data_unavailable" || detail == "" {
+		t.Fatalf("missing holder value must fail closed: ok=%v reason=%s detail=%s", ok, reason, detail)
+	}
+}
+
+func TestCompileCandidateCarriesAvgSharesPerHolder(t *testing.T) {
+	min, max := 5000.0, 20000.0
+	c := &methods.Candidate{Name: "T", AvgSharesPerHolderMin: &min, AvgSharesPerHolderMax: &max,
+		Entry: map[string]any{"type": "compare", "left": map[string]any{"type": "indicator", "indicator": "close"},
+			"right": map[string]any{"type": "constant", "value": 1.0}, "op": "gt"}}
+	compiled, _, err := methods.Compile(c)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	if compiled.Scope.AvgSharesPerHolderMin == nil || *compiled.Scope.AvgSharesPerHolderMin != min ||
+		compiled.Scope.AvgSharesPerHolderMax == nil || *compiled.Scope.AvgSharesPerHolderMax != max {
+		t.Fatalf("scope bounds lost during compile: %+v", compiled.Scope)
+	}
+}
+
 // TestResolveScopeLegacyUniverseLabelIsInformational guards the behavior the
 // mined-method blocker fix depends on: a legacy method carrying only a
 // Universe label (no structured scope) must NOT be rejected for the label

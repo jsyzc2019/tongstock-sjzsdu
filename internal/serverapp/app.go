@@ -40,7 +40,6 @@ import (
 	"github.com/sjzsdu/tongstock/internal/methodregistry"
 	"github.com/sjzsdu/tongstock/internal/methodseed"
 	"github.com/sjzsdu/tongstock/internal/onboarding"
-	"github.com/sjzsdu/tongstock/internal/paradigm"
 	"github.com/sjzsdu/tongstock/internal/paradigms"
 	"github.com/sjzsdu/tongstock/internal/paradigmspromote"
 	"github.com/sjzsdu/tongstock/internal/positiondecision"
@@ -252,18 +251,19 @@ func NewApp(cfg *config.Config, opts Options) (_ *App, err error) {
 	app.api.SetMethodRegistry(methodRegistry)
 	app.setModule("method_registry", "ready", "")
 
-	// 内置示例方法：编译 → 冻结真实数据全池回测 → 按真实验证结论注册。
+	// 内置示例方法：编译 → 活表真实全量数据回测 → 按真实验证结论注册。
 	seedEvidence, err := validationrepo.NewEvidenceRepository(app.storage)
 	if err != nil {
 		return nil, fmt.Errorf("初始化验证证据仓库失败: %w", err)
 	}
+	liveSeedSource := validationrepo.NewLiveSource(app.storage)
 	methodSeedService, err := methodseed.NewService(methodseed.Deps{
 		Registry:  methodRegistry,
-		Snapshots: paradigm.NewDatasetSnapshotStore(app.storage),
-		Bars:      validationrepo.New(app.storage),
-		Benchmark: validationrepo.NewBenchmark(app.storage),
+		Snapshots: liveSeedSource,
+		Bars:      liveSeedSource,
+		Benchmark: validationrepo.NewBenchmarkFor(liveSeedSource),
 		Evidence:  seedEvidence,
-		Universe:  validationrepo.NewSnapshotUniverse(app.storage),
+		Universe:  liveSeedSource,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("初始化内置示例方法服务失败: %w", err)
@@ -327,6 +327,14 @@ func NewApp(cfg *config.Config, opts Options) (_ *App, err error) {
 		marketsnapshotrepo.NewSQLiteWatermarkProvider(app.storage),
 		marketsnapshotrepo.NewSQLiteTradingCalendar(app.storage),
 	)
+	// 特征快照一致性：选股引擎未显式指定 feature_snapshot_id 时，先确保
+	// 有一个覆盖最新特征集（含 gap_pct/return1）的快照；库内只有升级前的
+	// 旧快照时就地重建，避免「方法可筛选却整批 insufficient_data」。
+	selectionEngine.SetFeatureEnsurer(&marketsnapshot.FeatureEnsurer{
+		Builder: snapshotBuilder, Snapshots: marketSnapshots, Features: featureEngine,
+	})
+	// 股票池展示名称补全（快照持久化不携带 name）。
+	selectionEngine.SetPoolNamer(marketsnapshotrepo.NewStockNameReader(app.storage))
 	onboardingService, err := onboarding.NewService(onboarding.Deps{
 		Builder: snapshotBuilder, Snapshots: marketSnapshots, Features: featureEngine,
 		Selection: selectionEngine, Freshness: klineDates,
@@ -356,12 +364,13 @@ func NewApp(cfg *config.Config, opts Options) (_ *App, err error) {
 	if err != nil {
 		return nil, fmt.Errorf("初始化规律发现引擎失败: %w", err)
 	}
+	liveAutomationSource := validationrepo.NewLiveSource(app.storage)
 	methodAutomation, err := methodautomation.New(methodautomation.Deps{
 		Registry:   methodRegistry,
-		Snapshots:  paradigm.NewDatasetSnapshotStore(app.storage),
-		Universe:   validationrepo.NewSnapshotUniverse(app.storage),
-		Bars:       validationrepo.New(app.storage),
-		Benchmark:  validationrepo.NewBenchmark(app.storage),
+		Snapshots:  liveAutomationSource,
+		Universe:   liveAutomationSource,
+		Bars:       liveAutomationSource,
+		Benchmark:  validationrepo.NewBenchmarkFor(liveAutomationSource),
 		Evidence:   seedEvidence,
 		Discoverer: discoveryResearcher,
 		Traces:     discoverTraces,
@@ -378,10 +387,11 @@ func NewApp(cfg *config.Config, opts Options) (_ *App, err error) {
 	// 横截面因子研究（factorlab）：与方法自动化共用同一组数据依赖
 	// （冻结快照 + 股票池 + K 线），把选股问题重述为「预测未来 N 日收益的
 	// 截面排序」。只读研究入口，产出因子 IC 证据与 TopN 名单，不改动选股引擎。
+	liveFactorSource := validationrepo.NewLiveSource(app.storage)
 	factorLab, err := factorlab.New(methodautomation.Deps{
-		Snapshots: paradigm.NewDatasetSnapshotStore(app.storage),
-		Universe:  validationrepo.NewSnapshotUniverse(app.storage),
-		Bars:      validationrepo.New(app.storage),
+		Snapshots: liveFactorSource,
+		Universe:  liveFactorSource,
+		Bars:      liveFactorSource,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("初始化横截面因子研究失败: %w", err)
@@ -478,14 +488,15 @@ func (a *App) configureOptionalModules(
 		a.setModule("paradigm", "ready", "")
 
 		// 范式→方法晋级链路（阶段 A P0）：把范式库与可信方法库接通。
-		// 依赖与 methodseed/methodautomation 同一组数据源（冻结快照 + K 线 + 基准）。
+		// 依赖与 methodseed/methodautomation 同一组数据源（活表全量 K 线 + 基准）。
+		livePromoteSource := validationrepo.NewLiveSource(a.storage)
 		paradigmPromote, err := paradigmspromote.New(paradigmspromote.Deps{
 			Paradigms: paradigmStore,
 			Registry:  methodRegistry,
-			Snapshots: paradigm.NewDatasetSnapshotStore(a.storage),
-			Universe:  validationrepo.NewSnapshotUniverse(a.storage),
-			Bars:      validationrepo.New(a.storage),
-			Benchmark: validationrepo.NewBenchmark(a.storage),
+			Snapshots: livePromoteSource,
+			Universe:  livePromoteSource,
+			Bars:      livePromoteSource,
+			Benchmark: validationrepo.NewBenchmarkFor(livePromoteSource),
 			Evidence:  validationEvidence,
 			Trials:    discoveryTrials,
 		})
