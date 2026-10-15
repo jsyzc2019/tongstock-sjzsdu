@@ -7,14 +7,17 @@ import {
   Collapse,
   Descriptions,
   Empty,
+  Popconfirm,
   Space,
   Spin,
   Statistic,
   Table,
   Tag,
+  Tooltip,
   Typography,
+  message,
 } from 'antd';
-import { ReloadOutlined } from '@ant-design/icons';
+import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { api, type SelectionCandidate, type SelectionRun } from '../api/client';
 import { formatDateTime } from '../lib/datetime';
@@ -106,6 +109,69 @@ export default function SelectionResult() {
     return Array.from(groups.entries()).sort((a, b) => b[1].length - a[1].length);
   }, [run]);
 
+  // —— 加入自选（用于后期评估方法的选股效果）——
+  // 分类 = 方法名-选股日期；单方法运行时可整批加入，多方法时逐只按各自触发方法归组。
+  const runMethodNames = useMemo(() => {
+    const names = new Set<string>();
+    for (const c of run?.candidates ?? []) {
+      for (const t of c.triggers ?? []) names.add(t.method_name);
+    }
+    return Array.from(names);
+  }, [run]);
+
+  const [addedCodes, setAddedCodes] = useState<Set<string>>(new Set());
+  const [addingAll, setAddingAll] = useState(false);
+
+  const watchGroupFor = useCallback(
+    (methodName?: string) => `${methodName || '选股'}-${run?.snapshot_date ?? '未知日期'}`,
+    [run],
+  );
+
+  const addToWatchlist = useCallback(
+    async (c: SelectionCandidate) => {
+      const methodName = runMethodNames.length === 1 ? runMethodNames[0] : c.triggers?.[0]?.method_name;
+      const group = watchGroupFor(methodName);
+      try {
+        await api.watchlistAdd(c.code, undefined, group, `选股动作 ${actionMeta(c.action).label} · ${run?.snapshot_date ?? ''}`);
+        setAddedCodes((prev) => new Set(prev).add(c.code));
+        void message.success(`已将 ${c.code} 加入自选「${group}」`);
+      } catch (e) {
+        void message.error(e instanceof Error ? e.message : '加入自选失败');
+      }
+    },
+    [runMethodNames, run, watchGroupFor],
+  );
+
+  const addAllToWatchlist = useCallback(async () => {
+    // 买入/观察才是可跟踪的候选；回避与数据不足不进评估分组。
+    const targets = (run?.candidates ?? []).filter((c) => c.action === 'buy' || c.action === 'watch');
+    if (targets.length === 0) return;
+    const group = watchGroupFor(runMethodNames[0]);
+    setAddingAll(true);
+    let ok = 0;
+    let fail = 0;
+    try {
+      for (const c of targets) {
+        try {
+          await api.watchlistAdd(c.code, undefined, group, `选股动作 ${actionMeta(c.action).label} · ${run?.snapshot_date ?? ''}`);
+          ok += 1;
+        } catch {
+          fail += 1;
+        }
+      }
+      setAddedCodes((prev) => {
+        const next = new Set(prev);
+        for (const c of targets) next.add(c.code);
+        return next;
+      });
+      void message.success(`已将 ${ok} 只候选加入自选「${group}」${fail > 0 ? `，${fail} 只失败` : ''}`);
+    } finally {
+      setAddingAll(false);
+    }
+  }, [run, runMethodNames, watchGroupFor]);
+
+  const batchDisabled = runMethodNames.length !== 1;
+
   // 候选为空时，真正的拦截原因必须在头部说清楚，而不是把
   // 「没有股票满足入场规则」当头条（那次规则可能根本没被执行）。
   const blockedBy = useMemo(() => {
@@ -165,6 +231,24 @@ export default function SelectionResult() {
         </Text>
       ),
     },
+    {
+      title: '操作',
+      key: 'watch',
+      width: 110,
+      render: (_, c) =>
+        addedCodes.has(c.code) ? (
+          <Tag color="green">已加入自选</Tag>
+        ) : (
+          <Button
+            size="small"
+            type="link"
+            icon={<PlusOutlined />}
+            onClick={() => void addToWatchlist(c)}
+          >
+            加入自选
+          </Button>
+        ),
+    },
   ];
 
   if (!run) {
@@ -205,6 +289,27 @@ export default function SelectionResult() {
           快照 {run.snapshot_id} · 快照日期 {run.snapshot_date}
           {run.requested_method_ids?.length ? ` · 指定方法 ${run.requested_method_ids.length} 个` : ''}
         </Text>
+        {(run.candidates.length ?? 0) > 0 && (
+          <Tooltip
+            title={
+              batchDisabled
+                ? '本次运行包含多个方法，请使用每行的「加入自选」按各自触发方法归组'
+                : `整批买入/观察候选加入自选分组「${watchGroupFor(runMethodNames[0])}」，便于后续跟踪该方法的选股效果`
+            }
+          >
+            <Popconfirm
+              title="整批加入自选"
+              description={`将把买入/观察候选加入分组「${watchGroupFor(runMethodNames[0])}」。若某只已在其他分组，会被移动到本分组（自选股以代码为唯一键）。`}
+              okText="加入"
+              onConfirm={() => void addAllToWatchlist()}
+              disabled={batchDisabled}
+            >
+              <Button icon={<PlusOutlined />} loading={addingAll} disabled={batchDisabled}>
+                整批加入自选
+              </Button>
+            </Popconfirm>
+          </Tooltip>
+        )}
       </Space>
 
       {error && (
@@ -254,7 +359,7 @@ export default function SelectionResult() {
         loading={loading}
         columns={columns}
         dataSource={run.candidates}
-        scroll={{ x: 860 }}
+        scroll={{ x: 980 }}
         pagination={{ pageSize: 50, showTotal: (t) => `共 ${t} 个候选` }}
         locale={{
           emptyText: (

@@ -176,6 +176,21 @@ func (s *Store) Delete(code string) error {
 	return err
 }
 
+// DeleteGroup 删除整个分组（分组随最后一只股票删除而消失，空分组不独立存在）。
+// 返回删除的股票数；保护 default 分组不被整组删除。
+func (s *Store) DeleteGroup(group string) (int64, error) {
+	if group == "" || group == "default" {
+		return 0, fmt.Errorf("refusing to delete group %q", group)
+	}
+	groupCol := s.quotedColumn("group")
+	query := fmt.Sprintf(`DELETE FROM watchlist WHERE %s = %s`, groupCol, s.ph(1))
+	res, err := s.s.DB().Exec(query, group)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 // Exists 检查是否存在
 func (s *Store) Exists(code string) (bool, error) {
 	var count int

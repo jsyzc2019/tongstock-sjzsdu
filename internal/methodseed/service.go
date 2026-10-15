@@ -70,6 +70,17 @@ func (s *Service) Run(ctx context.Context, opts Options) (*Result, error) {
 	}
 
 	seeds := filterSeeds(opts.Keys)
+	// 自定义候选与内置种子同管线验证；family 用名称 slug 保证重复运行去重。
+	for _, c := range opts.Candidates {
+		if c == nil {
+			continue
+		}
+		seeds = append(seeds, methods.SeedCandidate{
+			Key:       "custom-" + slugify(c.Name),
+			Rationale: "自定义候选方法验证",
+			Candidate: c,
+		})
+	}
 	res := &Result{
 		SnapshotID:   snapshot.ID,
 		UniverseSize: len(universe) + skippedUniverse,
@@ -178,8 +189,14 @@ func (s *Service) loadOne(ctx context.Context, seed methods.SeedCandidate, snaps
 		SplitType:       opts.SplitType,
 		DiscoveryTrials: opts.DiscoveryTrials,
 	}
+	// LiveSource 同时实现 StockFactsProvider；冻结快照源没有股票级事实，
+	// 方法 scope 要求市值/户均时验证会 fail closed（诚实拒绝，不静默放行）。
+	var facts validation.StockFactsProvider
+	if fp, ok := s.deps.Bars.(validation.StockFactsProvider); ok {
+		facts = fp
+	}
 	factory, err := validation.NewFactory(validation.FactoryDeps{
-		Method: compiled, Bars: s.deps.Bars, Benchmark: s.deps.Benchmark,
+		Method: compiled, Bars: s.deps.Bars, Benchmark: s.deps.Benchmark, Facts: facts,
 	})
 	if err != nil {
 		out.Status = "failed"
@@ -247,6 +264,20 @@ func filterSeeds(keys []string) []methods.SeedCandidate {
 		}
 	}
 	return out
+}
+
+// slugify 把方法名转成稳定 key：保留字母数字与中文，其余折叠为 '-'。
+func slugify(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r > 127:
+			b.WriteRune(r)
+		default:
+			b.WriteRune('-')
+		}
+	}
+	return strings.Trim(b.String(), "-")
 }
 
 func dedupeCodes(codes []string) []string {

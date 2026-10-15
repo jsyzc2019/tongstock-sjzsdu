@@ -101,6 +101,7 @@ var validateRunCmd = &cobra.Command{
 			Method:    m,
 			Bars:      barProvider,
 			Benchmark: benchProvider,
+			Facts:     liveSource,
 		})
 		if err != nil {
 			return err

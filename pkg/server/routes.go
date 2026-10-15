@@ -81,6 +81,7 @@ func (s *Server) registerPortfolioRoutes(api *gin.RouterGroup) {
 	api.PUT("/watchlist/:code/note", s.handleWatchlistUpdateNote)
 	api.PUT("/watchlist/:code/group", s.handleWatchlistUpdateGroup)
 	api.GET("/watchlist/groups", s.handleWatchlistGroups)
+	api.DELETE("/watchlist/group", s.handleWatchlistDeleteGroup)
 	api.GET("/stockpool", s.handleStockpoolList)
 	api.POST("/stockpool", s.handleStockpoolUpsert)
 	api.DELETE("/stockpool/:id", s.handleStockpoolDelete)

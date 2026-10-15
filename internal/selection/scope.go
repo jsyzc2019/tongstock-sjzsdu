@@ -76,6 +76,18 @@ func ResolveScope(method *methods.CompiledMethod, market *marketsnapshot.MarketS
 			return false, "scope_excluded", "avg shares per holder is above method scope maximum"
 		}
 	}
+	if s.AvgTurnoverMin != nil || s.AvgTurnoverMax != nil {
+		to, ok := values["avg_turnover"]
+		if !ok || to <= 0 {
+			return false, "scope_data_unavailable", "window avg turnover is required by method scope but missing from current snapshot"
+		}
+		if s.AvgTurnoverMin != nil && to < *s.AvgTurnoverMin {
+			return false, "scope_excluded", "window avg turnover is below method scope minimum"
+		}
+		if s.AvgTurnoverMax != nil && to > *s.AvgTurnoverMax {
+			return false, "scope_excluded", "window avg turnover is above method scope maximum"
+		}
+	}
 	return true, "", ""
 }
 

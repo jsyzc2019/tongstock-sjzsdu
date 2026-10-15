@@ -175,8 +175,12 @@ func (s *Service) Promote(ctx context.Context, paradigmID string, opts Options) 
 		DateEnd:         snapshot.DateRange.End,
 		DiscoveryTrials: trials,
 	}
+	var facts validation.StockFactsProvider
+	if fp, ok := s.deps.Bars.(validation.StockFactsProvider); ok {
+		facts = fp
+	}
 	factory, err := validation.NewFactory(validation.FactoryDeps{
-		Method: compiled, Bars: s.deps.Bars, Benchmark: s.deps.Benchmark,
+		Method: compiled, Bars: s.deps.Bars, Benchmark: s.deps.Benchmark, Facts: facts,
 	})
 	if err != nil {
 		return s.recordBlocked(p, out, []string{"validation factory: " + err.Error()}), nil

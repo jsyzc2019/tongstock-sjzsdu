@@ -14,6 +14,7 @@ import {
   Empty,
   Input,
   List,
+  Popconfirm,
   Popover,
   Row,
   Segmented,
@@ -55,6 +56,16 @@ function getGroupLabel(group: string): string {
     paradigm: '范式观察',
   };
   return labels[group] ?? group;
+}
+
+// 动态分组名（如「[内置] 乖离超跌反转-小盘低集中-2026-10-12」）很长，
+// 行内/页签只显示前 max 个字（去掉 [xx] 前缀后截断加省略号），全名靠 Tooltip 展示。
+function shortGroupLabel(group: string, max = 4): string {
+  const full = getGroupLabel(group);
+  if (full.length <= max) return full;
+  const stripped = full.replace(/^\[[^\]]*\]\s*/, '');
+  const base = stripped.length > 0 ? stripped : full;
+  return base.length > max ? `${base.slice(0, max)}…` : base;
 }
 
 function getValueColor(value: number) {
@@ -316,6 +327,25 @@ export default function Watchlist() {
     }
   };
 
+  // 删除整个分组（自选股以代码为唯一键，分组随股票存在）。
+  // default 是兜底分组，不允许整组删除。
+  const [deletingGroup, setDeletingGroup] = useState(false);
+  const deleteActiveGroup = async () => {
+    if (activeGroup === '__all__' || activeGroup === 'default') return;
+    const count = (groups ?? []).find((g) => g.name === activeGroup)?.count ?? rows.length;
+    setDeletingGroup(true);
+    try {
+      const res = await api.watchlistDeleteGroup(activeGroup);
+      void message.success(`已删除分组「${getGroupLabel(activeGroup)}」及其 ${res.deleted ?? count} 只自选股`);
+      setActiveGroup('__all__'); // 触发 loadWatchlist 重新加载（activeGroup 是其依赖）
+      await loadGroups();
+    } catch (error) {
+      void message.error(error instanceof Error ? error.message : '删除分组失败');
+    } finally {
+      setDeletingGroup(false);
+    }
+  };
+
   const stats = useMemo(() => {
     const up = rows.filter((r) => r.change > 0).length;
     const down = rows.filter((r) => r.change < 0).length;
@@ -357,7 +387,11 @@ export default function Watchlist() {
         <Space direction="vertical" size={16} style={{ display: 'flex' }}>
           <Space>
             <StockOutlined />
-            <Typography.Text strong>添加自选{activeGroup !== '__all__' && <Tag color={getGroupColor(activeGroup)} style={{ marginInlineStart: 8 }}>{getGroupLabel(activeGroup)}</Tag>}</Typography.Text>
+            <Typography.Text strong>添加自选{activeGroup !== '__all__' && (
+              <Tooltip title={getGroupLabel(activeGroup)}>
+                <Tag color={getGroupColor(activeGroup)} style={{ marginInlineStart: 8 }}>{shortGroupLabel(activeGroup)}</Tag>
+              </Tooltip>
+            )}</Typography.Text>
           </Space>
           <StockSearchInput
             limit={10}
@@ -419,18 +453,40 @@ export default function Watchlist() {
               </Space>
             }
             extra={
-              <Segmented
-                size="small"
-                value={activeGroup}
-                onChange={(value) => setActiveGroup(value as string)}
-                options={[
-                  { label: `全部 (${(groups ?? []).reduce((sum, g) => sum + g.count, 0)})`, value: '__all__' },
-                  ...(groups ?? []).map((g) => ({
-                    label: `${getGroupLabel(g.name)} (${g.count})`,
-                    value: g.name,
-                  })),
-                ]}
-              />
+              // 分组会随方法×日期持续增多：不换行、横向滚动适配，页签只显示短名。
+              <div style={{ maxWidth: '100%', overflowX: 'auto', whiteSpace: 'nowrap' }}>
+                <Space size={8} wrap={false} style={{ display: 'inline-flex' }}>
+                  <Segmented
+                    size="small"
+                    value={activeGroup}
+                    onChange={(value) => setActiveGroup(value as string)}
+                    options={[
+                      { label: `全部 (${(groups ?? []).reduce((sum, g) => sum + g.count, 0)})`, value: '__all__' },
+                      ...(groups ?? []).map((g) => ({
+                        label: (
+                          <Tooltip title={`${getGroupLabel(g.name)} (${g.count})`}>
+                            <span>{shortGroupLabel(g.name)} ({g.count})</span>
+                          </Tooltip>
+                        ),
+                        value: g.name,
+                      })),
+                    ]}
+                  />
+                  {activeGroup !== '__all__' && activeGroup !== 'default' && (
+                    <Popconfirm
+                      title={`删除分组「${getGroupLabel(activeGroup)}」`}
+                      description={`将移除该分组下全部 ${(groups ?? []).find((g) => g.name === activeGroup)?.count ?? rows.length} 只自选股，不可恢复。`}
+                      okText="删除"
+                      okButtonProps={{ danger: true }}
+                      onConfirm={() => void deleteActiveGroup()}
+                    >
+                      <Button size="small" danger icon={<DeleteOutlined />} loading={deletingGroup}>
+                        删除分组
+                      </Button>
+                    </Popconfirm>
+                  )}
+                </Space>
+              </div>
             }
           >
             {rows.length === 0 ? (
@@ -476,8 +532,8 @@ export default function Watchlist() {
                             </Space>
                           }
                         >
-                          <Tooltip title="修改分组">
-                            <Button type="text" size="small" icon={<Tag color={getGroupColor(groupName)}>{getGroupLabel(groupName)}</Tag>} />
+                          <Tooltip title={`修改分组（${getGroupLabel(groupName)}）`}>
+                            <Button type="text" size="small" icon={<Tag color={getGroupColor(groupName)} style={{ marginInlineEnd: 0 }}>{shortGroupLabel(groupName)}</Tag>} />
                           </Tooltip>
                         </Popover>,
                         <Popover
@@ -529,7 +585,9 @@ export default function Watchlist() {
                           <Space wrap>
                             <span>{item.quote?.Name || item.name || item.code}</span>
                             <Text type="secondary">{item.code}</Text>
-                            <Tag color={getGroupColor(groupName)} style={{ marginInlineEnd: 0 }}>{getGroupLabel(groupName)}</Tag>
+                            <Tag color={getGroupColor(groupName)} style={{ marginInlineEnd: 0 }}>
+                              <Tooltip title={getGroupLabel(groupName)}>{shortGroupLabel(groupName)}</Tooltip>
+                            </Tag>
                             {freshness[item.code] && <FreshnessBadge result={freshness[item.code]} />}
                           </Space>
                         }

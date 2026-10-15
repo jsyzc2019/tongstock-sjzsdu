@@ -50,6 +50,11 @@ type Scope struct {
 	// 由分层验证（stratify）结论固化而来：同一方法在不同筹码结构上表现不同。
 	AvgSharesPerHolderMin *float64 `json:"avg_shares_per_holder_min,omitempty"`
 	AvgSharesPerHolderMax *float64 `json:"avg_shares_per_holder_max,omitempty"`
+	// 窗口平均换手率区间（%，stockinfo 口径：成交额/流通市值）。
+	// 由分层验证结论固化而来：低换手"死股"是多数方法的坟墓。
+	// 注意这是股票级静态特征（全窗口平均），不是入场当日的时点换手率。
+	AvgTurnoverMin *float64 `json:"avg_turnover_min,omitempty"`
+	AvgTurnoverMax *float64 `json:"avg_turnover_max,omitempty"`
 	ExcludeST             bool     `json:"exclude_st,omitempty"`
 	MarketState           []string `json:"market_state,omitempty"`  // "trend_up" "bear" "range" 空=无限制
 	FeatureDeps           []string `json:"feature_deps,omitempty"`  // 依赖的非内建特征名 (用于执行前 fail-fast)

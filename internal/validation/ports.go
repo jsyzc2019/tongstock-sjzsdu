@@ -29,6 +29,19 @@ type EvidenceRepository interface {
 	ListByMethod(ctx context.Context, methodHash string, limit int) ([]*EvidenceBundle, error)
 }
 
+// StockFacts 是股票级 scope 判定事实（与 stratify / selection 口径一致）。
+// 数值为 0 表示未知，对应 scope 条件按 fail-closed 处理（跳过该股票）。
+type StockFacts struct {
+	FloatShares float64 // 流通股本（股），0=未知
+	HolderCount float64 // 股东户数（户），0=未知
+}
+
+// StockFactsProvider 提供股票级 scope 事实。
+// 方法 scope 要求市值/户均条件而该端口未装配时，验证整体 fail closed。
+type StockFactsProvider interface {
+	StockFacts(ctx context.Context, code string) (*StockFacts, error)
+}
+
 // FactoryDeps 装配验证工厂所需的外部依赖。
 // 由 Composition Root 注入；域层不构造具体适配器。
 type FactoryDeps struct {
@@ -37,6 +50,7 @@ type FactoryDeps struct {
 	Benchmark BenchmarkProvider // 可为 nil（无基准时跳过超额收益）
 	Snapshot  *marketsnapshot.MarketSnapshot
 	Calendar  marketsnapshot.TradingCalendar // 可为 nil
+	Facts     StockFactsProvider             // 可为 nil；scope 要求市值/户均时必须提供
 }
 
 // SegmentSpec 描述一个回测段（训练/验证/样本外）。

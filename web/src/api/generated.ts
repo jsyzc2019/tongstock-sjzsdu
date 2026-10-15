@@ -219,6 +219,7 @@ export const operations = {
   getApiWatchlist: { method: "GET", path: "/api/watchlist" },
   postApiWatchlist: { method: "POST", path: "/api/watchlist" },
   getApiWatchlistGroups: { method: "GET", path: "/api/watchlist/groups" },
+  deleteApiWatchlistGroup: { method: "DELETE", path: "/api/watchlist/group" },
   deleteApiWatchlistCode: { method: "DELETE", path: "/api/watchlist/{code}" },
   putApiWatchlistCodeGroup: { method: "PUT", path: "/api/watchlist/{code}/group" },
   putApiWatchlistCodeNote: { method: "PUT", path: "/api/watchlist/{code}/note" },

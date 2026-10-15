@@ -226,6 +226,13 @@ func ComputeFeatureContentHash(s *FeatureSnapshot) (string, error) {
 				h.Write([]byte{0xff})
 				continue
 			}
+			// 负零规范化：SQLite REAL 不保留 -0.0 的符号位，落库重载后 -0 会
+			// 变成 +0，而 %.8g 把两者格式化成不同文本（"-0" vs "0"），导致
+			// 快照永远过不了自己的 content hash 校验（selection 引擎 fail-closed
+			// 报 "content hash mismatch"）。零的符号是表示细节，不参与内容身份。
+			if v == 0 {
+				v = 0
+			}
 			// 用格式化避免 float64 NaN/Inf 不一致
 			fmt.Fprintf(h, "%q=%.8g|", f, v)
 		}
@@ -335,6 +342,7 @@ func LatestSelectionFeatures() []FeatureSpec {
 		{Name: "turnover_rate", Category: "scope", Window: 1, Description: "当前换手率（%），仅用于最新快照筛选"},
 		{Name: "float_shares", Category: "scope", Window: 1, Description: "当前流通股本（万股），仅用于最新快照筛选"},
 		{Name: "avg_shares_per_holder", Category: "scope", Window: 1, Description: "当前户均持股（流通股本/股东户数，股/户），仅用于最新快照筛选"},
+		{Name: "avg_turnover", Category: "scope", Window: 120, Description: "近120日平均换手率（%，流通市值口径），近似验证侧的窗口平均换手率 scope（口径差：验证为约4年窗口均值），仅用于最新快照筛选"},
 	}, features...)
 }
 

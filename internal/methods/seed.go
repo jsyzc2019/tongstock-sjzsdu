@@ -28,6 +28,13 @@ func SeedCandidates() []SeedCandidate {
 		{Key: "boll_lower_bounce", Rationale: "布林下轨承接：触及布林下轨但收盘收回当日高位，显示买盘承接后的均值回归。", Candidate: seedBollLowerBounce()},
 		{Key: "kdj_low_uptrend", Rationale: "KDJ 低位承接：J 值小于 0 且 K 值低于 30 的极端超卖，当日收在振幅高位显示承接时介入。", Candidate: seedKDJLowUptrend()},
 		{Key: "bias20_reversal", Rationale: "乖离超跌反转：20 日乖离率低于 -12% 且当日收在振幅高位，博弈超跌反弹。", Candidate: seedBias20Reversal()},
+		// 高胜率专项候选（基于全市场分层验证结论：超跌承接类胜率最高，条件越极端胜率越高但交易越少）
+		{Key: "bias20_deep_reversal", Rationale: "极端超跌反转：20 日乖离率低于 -18% 的恐慌盘，且当日收在振幅上 70% 以上，只做最极端的错杀反弹。", Candidate: seedBias20DeepReversal()},
+		{Key: "kdj_extreme_bounce", Rationale: "极端超卖承接：KDJ J 值低于 -10 的极端超卖叠加当日强势承接（振幅上 70%）。", Candidate: seedKDJExtremeBounce()},
+		{Key: "gap_up_strength", Rationale: "跳空强势：跳空高开 2% 以上且收盘守住当日上半区，动量延续。", Candidate: seedGapUpStrength()},
+		{Key: "vol_dryup_pullback", Rationale: "缩量回踩：趋势向上（站上 20 日线）且回踩 5 日线、5 日量比低于 0.6（抛压枯竭）时低吸。", Candidate: seedVolDryupPullback()},
+		{Key: "boll_strong_bounce", Rationale: "下轨强承接：触及布林下轨且收盘收复至当日振幅 85% 以上，承接力度更强的均值回归。", Candidate: seedBollStrongBounce()},
+		{Key: "rsi6_extreme_reversal", Rationale: "短周期极端超卖：RSI(6) 低于 15 的极端超卖且当日承接（振幅上 60%），快进快出。", Candidate: seedRSI6ExtremeReversal()},
 	}
 }
 
@@ -280,6 +287,176 @@ func seedBias20Reversal() *Candidate {
 
 func indicator(name string) map[string]any {
 	return map[string]any{"type": "indicator", "indicator": name}
+}
+
+func seedBias20DeepReversal() *Candidate {
+	pct := 0.10
+	stopLoss := -0.08
+	takeProfit := 0.15
+	return &Candidate{
+		Name:           "极端超跌反转",
+		Description:    "20 日乖离率低于 -18%（恐慌性错杀）且当日收在振幅上 70% 以上时博弈反弹；乖离率修复到 -8% 离场。",
+		SourceKind:     "structured",
+		Universe:       "universe_usable",
+		FeatureDeps:    []string{"bias20", "closepos"},
+		PositionMode:   "pct_equity",
+		PositionPct:    &pct,
+		HoldingMaxDays: 15,
+		HoldingMinDays: 2,
+		StopLossPct:    &stopLoss,
+		TakeProfitPct:  &takeProfit,
+		Entry: map[string]any{
+			"type": "and",
+			"children": []any{
+				compare("lt", indicator("bias20"), constant(-0.18)),
+				compare("gt", indicator("closepos"), constant(0.7)),
+			},
+		},
+		Exit: compare("gt", indicator("bias20"), constant(-0.08)),
+	}
+}
+
+func seedKDJExtremeBounce() *Candidate {
+	pct := 0.10
+	stopLoss := -0.08
+	takeProfit := 0.20
+	return &Candidate{
+		Name:           "极端超卖承接",
+		Description:    "KDJ J 值低于 -10（极端超卖）且当日收在振幅上 70% 以上（承接迹象）时介入；J 值回到 80 离场。",
+		SourceKind:     "structured",
+		Universe:       "universe_usable",
+		FeatureDeps:    []string{"kdj_j", "closepos"},
+		PositionMode:   "pct_equity",
+		PositionPct:    &pct,
+		HoldingMaxDays: 20,
+		HoldingMinDays: 2,
+		StopLossPct:    &stopLoss,
+		TakeProfitPct:  &takeProfit,
+		Entry: map[string]any{
+			"type": "and",
+			"children": []any{
+				compare("lt", indicator("kdj_j"), constant(-10)),
+				compare("gt", indicator("closepos"), constant(0.7)),
+			},
+		},
+		Exit: compare("gt", indicator("kdj_j"), constant(80)),
+	}
+}
+
+func seedGapUpStrength() *Candidate {
+	pct := 0.10
+	stopLoss := -0.07
+	takeProfit := 0.20
+	return &Candidate{
+		Name:           "跳空强势",
+		Description:    "跳空高开 2% 以上且收盘守住当日振幅上半区（强势未回补）时介入；跌破 5 日线离场。",
+		SourceKind:     "structured",
+		Universe:       "universe_usable",
+		FeatureDeps:    []string{"gap_pct", "closepos", "ma5"},
+		PositionMode:   "pct_equity",
+		PositionPct:    &pct,
+		HoldingMaxDays: 20,
+		HoldingMinDays: 3,
+		StopLossPct:    &stopLoss,
+		TakeProfitPct:  &takeProfit,
+		Entry: map[string]any{
+			"type": "and",
+			"children": []any{
+				compare("gt", indicator("gap_pct"), constant(0.02)),
+				compare("gt", indicator("closepos"), constant(0.5)),
+			},
+		},
+		Exit: compare("lt", indicator("close"), indicator("ma5")),
+	}
+}
+
+func seedVolDryupPullback() *Candidate {
+	pct := 0.10
+	stopLoss := -0.08
+	takeProfit := 0.20
+	return &Candidate{
+		Name:           "缩量回踩",
+		Description:    "趋势向上（收盘站上 20 日线）且回踩 5 日线（乖离 -3%~0）、5 日量比低于 0.6（抛压枯竭）时低吸；乖离回到 +2% 或跌破 20 日线离场。",
+		SourceKind:     "structured",
+		Universe:       "universe_usable",
+		FeatureDeps:    []string{"close", "ma20", "bias5", "volratio5"},
+		PositionMode:   "pct_equity",
+		PositionPct:    &pct,
+		HoldingMaxDays: 25,
+		HoldingMinDays: 3,
+		StopLossPct:    &stopLoss,
+		TakeProfitPct:  &takeProfit,
+		Entry: map[string]any{
+			"type": "and",
+			"children": []any{
+				compare("gt", indicator("close"), indicator("ma20")),
+				compare("gt", indicator("bias5"), constant(-0.03)),
+				compare("lt", indicator("bias5"), constant(0)),
+				compare("lt", indicator("volratio5"), constant(0.6)),
+			},
+		},
+		Exit: map[string]any{
+			"type": "or",
+			"children": []any{
+				compare("gt", indicator("bias5"), constant(0.02)),
+				compare("lt", indicator("close"), indicator("ma20")),
+			},
+		},
+	}
+}
+
+func seedBollStrongBounce() *Candidate {
+	pct := 0.10
+	stopLoss := -0.08
+	takeProfit := 0.15
+	return &Candidate{
+		Name:           "下轨强承接",
+		Description:    "收盘触及布林(20,2)下轨、且收在当日振幅上 85% 以上（强力承接）时介入；回到中轨即离场。",
+		SourceKind:     "structured",
+		Universe:       "universe_usable",
+		FeatureDeps:    []string{"close", "boll_lower", "boll_mid", "closepos"},
+		PositionMode:   "pct_equity",
+		PositionPct:    &pct,
+		HoldingMaxDays: 15,
+		HoldingMinDays: 2,
+		StopLossPct:    &stopLoss,
+		TakeProfitPct:  &takeProfit,
+		Entry: map[string]any{
+			"type": "and",
+			"children": []any{
+				compare("lt", indicator("close"), indicator("boll_lower")),
+				compare("gt", indicator("closepos"), constant(0.85)),
+			},
+		},
+		Exit: compare("gt", indicator("close"), indicator("boll_mid")),
+	}
+}
+
+func seedRSI6ExtremeReversal() *Candidate {
+	pct := 0.10
+	stopLoss := -0.08
+	takeProfit := 0.15
+	return &Candidate{
+		Name:           "短周期极端超卖",
+		Description:    "RSI(6) 低于 15 的极端超卖且当日收在振幅上 60% 以上（企稳迹象）时介入；RSI(6) 回到 45 离场。",
+		SourceKind:     "structured",
+		Universe:       "universe_usable",
+		FeatureDeps:    []string{"rsi6", "closepos"},
+		PositionMode:   "pct_equity",
+		PositionPct:    &pct,
+		HoldingMaxDays: 15,
+		HoldingMinDays: 2,
+		StopLossPct:    &stopLoss,
+		TakeProfitPct:  &takeProfit,
+		Entry: map[string]any{
+			"type": "and",
+			"children": []any{
+				compare("lt", indicator("rsi6"), constant(15)),
+				compare("gt", indicator("closepos"), constant(0.6)),
+			},
+		},
+		Exit: compare("gt", indicator("rsi6"), constant(45)),
+	}
 }
 
 func constant(value float64) map[string]any {

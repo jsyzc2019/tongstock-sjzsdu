@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"sort"
 	"time"
 
@@ -50,12 +51,16 @@ type stratifyGroupResult struct {
 
 // stratCodeBars 是分层内一只股票的全窗口日线与分层依据。
 type stratCodeBars struct {
-	code      string
-	avgAmount float64 // 窗口日均成交额（amount 分层依据）
-	avgClose  float64 // 窗口均价（市值近似 = 流通股本 × 均价）
-	shares    float64 // 流通股本（stockinfo.liu_tong_gu_ben，万股）
-	holders   float64 // 股东户数（finance_snapshot.GuDongRenShu）
-	bars      []validation.BacktestBar
+	code         string
+	avgAmount    float64 // 窗口日均成交额（amount 分层依据）
+	avgClose     float64 // 窗口均价（市值近似 = 流通股本 × 均价）
+	shares       float64 // 流通股本（stockinfo.liu_tong_gu_ben，万股）
+	holders      float64 // 股东户数（finance_snapshot.GuDongRenShu）
+	avgTurnover  float64 // 窗口日均换手率（需流通股本；缺失为 -1）
+	avgAmplitude float64 // 窗口日均振幅 (high-low)/preclose
+	volDaily     float64 // 窗口日收益率标准差（波动率近似）
+	mom60        float64 // 窗口末 60 日动量（不足 61 根为 NaN，分组时排除）
+	bars         []validation.BacktestBar
 }
 
 var methodLibraryStratifyCmd = &cobra.Command{
@@ -149,18 +154,42 @@ var methodLibraryStratifyCmd = &cobra.Command{
 			if err != nil {
 				return fmt.Errorf("load bars %s: %w", code, err)
 			}
-			var sum, closeSum float64
-			for _, b := range bars {
+			var sum, closeSum, ampSum float64
+			returns := make([]float64, 0, len(bars))
+			for i, b := range bars {
 				sum += b.Amount
 				closeSum += b.Close
 				dateSet[b.Date] = struct{}{}
+				if b.PreClose > 0 {
+					ampSum += (b.High - b.Low) / b.PreClose
+					if b.Close > 0 {
+						returns = append(returns, (b.Close-b.PreClose)/b.PreClose)
+					}
+				}
+				_ = i
 			}
-			loaded = append(loaded, stratCodeBars{
+			cb := stratCodeBars{
 				code: code, avgAmount: sum / float64(len(bars)),
 				avgClose: closeSum / float64(len(bars)),
 				shares:   sharesMap[code], holders: holdersMap[code],
-				bars: bars,
-			})
+				avgAmplitude: ampSum / float64(len(bars)),
+				bars:         bars,
+			}
+			if cb.shares > 0 {
+				floatValue := cb.shares * 1e4 // 万股 → 股
+				// kline.amount 存储单位为百元（真实成交额 = 列值 × 100），
+				// 换手率 = 日均成交额 / 流通市值（小数口径，0.02 = 2%）。
+				cb.avgTurnover = cb.avgAmount * 100 / (floatValue * cb.avgClose)
+			} else {
+				cb.avgTurnover = -1
+			}
+			cb.volDaily = stddev(returns)
+			if n := len(bars); n > 60 && bars[n-61].Close > 0 {
+				cb.mom60 = bars[n-1].Close/bars[n-61].Close - 1
+			} else {
+				cb.mom60 = -2 // 哨兵：分组时排除（真实动量 > -1）
+			}
+			loaded = append(loaded, cb)
 		}
 
 		dates := make([]string, 0, len(dateSet))
@@ -292,6 +321,58 @@ func emitScopeSuggestion(by string, groups [][]stratCodeBars, labels []string, r
 			scope["avg_shares_per_holder_max"] = roundScope(hi)
 		}
 	}
+	// 换手率是股票级静态特征（全窗口平均），2026-10-13 实验证明翻译成 entry 的
+	// 逐 bar turnover_rate 属于口径错位（会把方法拖到 rejected），因此固化为
+	// scope 字段 avg_turnover_min/max（%），由验证工厂在回测前过滤股票池。
+	if by == "turnover" {
+		lo, hi := metricBounds(members, func(cb stratCodeBars) float64 { return cb.avgTurnover })
+		if lo >= 0 {
+			scope["avg_turnover_min"] = roundScopeN(lo*100, 4)
+			scope["avg_turnover_max"] = roundScopeN(hi*100, 4)
+		}
+	}
+	// bar 衍生维度 → 入场条件建议（这些是单日可判定指标，直接加进 entry）。
+	// scale 把窗口近似小数口径换算成指标口径：volatility20/amplitude1/ret60
+	// 与日收益率同口径（小数）。
+	entryDims := map[string]struct {
+		indicator string
+		scale     float64
+		note      string
+	}{
+		"volatility": {"volatility20", 1, "20 日波动率（小数，如 0.03 = 3%）"},
+		"amplitude":  {"amplitude1", 1, "单日振幅（小数，如 0.05 = 5%）"},
+		"momentum":   {"ret60", 1, "60 日动量（小数，如 0.15 = +15%）"},
+	}
+	if spec, ok := entryDims[by]; ok {
+		lo, hi := metricBounds(members, func(cb stratCodeBars) float64 {
+			switch by {
+			case "volatility":
+				return cb.volDaily
+			case "amplitude":
+				return cb.avgAmplitude
+			case "momentum":
+				if cb.mom60 < -1.5 {
+					return -1
+				}
+				return cb.mom60
+			}
+			return -1
+		})
+		if lo >= 0 {
+			cond := map[string]any{
+				"type": "and",
+				"children": []any{
+					scopeCompare("gte", scopeIndicator(spec.indicator), scopeConstant(roundScopeN(lo*spec.scale, 4))),
+					scopeCompare("lte", scopeIndicator(spec.indicator), scopeConstant(roundScopeN(hi*spec.scale, 4))),
+				},
+			}
+			raw, _ := json.MarshalIndent(cond, "", "  ")
+			fmt.Printf("\n建议入场条件（固化最优层「%s」，%d 笔样本外交易，单笔均收 %.2f%%、胜率 %.1f%%）:\n%s\n",
+				labels[best], results[best].Trades, results[best].AvgTradeRet*100, results[best].WinRate*100, raw)
+			fmt.Printf("说明: %s 区间为窗口近似边界；把上述 children 并入现有 Entry 的 and 节点即可。\n", spec.note)
+			return
+		}
+	}
 	raw, _ := json.MarshalIndent(scope, "", "  ")
 	fmt.Printf("\n建议 scope（固化最优层「%s」，%d 笔样本外交易，单笔均收 %.2f%%、胜率 %.1f%%）:\n%s\n",
 		labels[best], results[best].Trades, results[best].AvgTradeRet*100, results[best].WinRate*100, raw)
@@ -318,6 +399,26 @@ func metricBounds(members []stratCodeBars, key func(stratCodeBars) float64) (flo
 
 func roundScope(v float64) float64 {
 	return float64(int(v*100+0.5)) / 100
+}
+
+// roundScopeN 按 n 位小数四舍五入（换手率/波动率等小量级指标需要 4 位精度）。
+func roundScopeN(v float64, n int) float64 {
+	p := math.Pow10(n)
+	return float64(int(v*p+0.5)) / p
+}
+
+// scopeIndicator / scopeConstant / scopeCompare 与 methods 包私有的
+// indicator/constant/compare 结构一致，用于输出候选 JSON 片段。
+func scopeIndicator(name string) map[string]any {
+	return map[string]any{"type": "indicator", "indicator": name}
+}
+
+func scopeConstant(value float64) map[string]any {
+	return map[string]any{"type": "constant", "value": value}
+}
+
+func scopeCompare(op string, left, right map[string]any) map[string]any {
+	return map[string]any{"type": "compare", "op": op, "left": left, "right": right}
 }
 
 // runStratifyGroup 对一组股票逐段回测并聚合样本外统计。
@@ -542,6 +643,35 @@ func stratifyAssign(loaded []stratCodeBars, by string, n int) ([][]stratCodeBars
 			return hold
 		})
 		return equalSplit(sorted, n), amountLabelsDim(n, "户均持股"), skip, nil
+	case "turnover":
+		if n < 2 {
+			n = 2
+		}
+		sorted, skip := sortByMetric(loaded, func(cb stratCodeBars) float64 { return cb.avgTurnover })
+		return equalSplit(sorted, n), amountLabelsDim(n, "换手率"), skip, nil
+	case "volatility":
+		if n < 2 {
+			n = 2
+		}
+		sorted, skip := sortByMetric(loaded, func(cb stratCodeBars) float64 { return cb.volDaily })
+		return equalSplit(sorted, n), amountLabelsDim(n, "波动率"), skip, nil
+	case "amplitude":
+		if n < 2 {
+			n = 2
+		}
+		sorted, skip := sortByMetric(loaded, func(cb stratCodeBars) float64 { return cb.avgAmplitude })
+		return equalSplit(sorted, n), amountLabelsDim(n, "振幅"), skip, nil
+	case "momentum":
+		if n < 2 {
+			n = 2
+		}
+		sorted, skip := sortByMetric(loaded, func(cb stratCodeBars) float64 {
+			if cb.mom60 < -1.5 {
+				return -1
+			}
+			return cb.mom60
+		})
+		return equalSplit(sorted, n), amountLabelsDim(n, "动量"), skip, nil
 	case "cap_holders":
 		caps := make([]stratCodeBars, 0, len(loaded))
 		for _, cb := range loaded {
@@ -607,8 +737,30 @@ func stratifyAssign(loaded []stratCodeBars, by string, n int) ([][]stratCodeBars
 		}
 		return cells, labels, skip, nil
 	default:
-		return nil, nil, 0, fmt.Errorf("未知的分层维度 %q（可选: amount / market_cap / holders / cap_holders）", by)
+		return nil, nil, 0, fmt.Errorf("未知的分层维度 %q（可选: amount / market_cap / holders / cap_holders / turnover / volatility / amplitude / momentum）", by)
 	}
+}
+
+// stddev 返回样本标准差；空输入返回 -1（缺数据哨兵）。
+func stddev(xs []float64) float64 {
+	if len(xs) < 2 {
+		return -1
+	}
+	var sum float64
+	for _, x := range xs {
+		sum += x
+	}
+	mean := sum / float64(len(xs))
+	var ss float64
+	for _, x := range xs {
+		d := x - mean
+		ss += d * d
+	}
+	variance := ss / float64(len(xs)-1)
+	if variance < 0 {
+		return -1
+	}
+	return math.Sqrt(variance)
 }
 
 // equalSplit 升序均分，前余数个组各多拿一只。
@@ -729,7 +881,7 @@ func init() {
 	methodLibraryStratifyCmd.Flags().StringVar(&stratifySnapshot, "snapshot", "", "（已废弃，兼容保留并被忽略）数据固定读活表全量")
 	methodLibraryStratifyCmd.Flags().IntVar(&stratifyGroups, "groups", 3, "分层组数")
 	methodLibraryStratifyCmd.Flags().IntVar(&stratifyMaxCodes, "max-codes", 0, "股票池解析上限（<=0 表示不设上限，使用全部合格股票）")
-	methodLibraryStratifyCmd.Flags().StringVar(&stratifyBy, "by", "market_cap", "分层维度: market_cap（流通市值）/ holders（户均持股）/ cap_holders（市值×户均 3×3）/ amount（成交额）")
+	methodLibraryStratifyCmd.Flags().StringVar(&stratifyBy, "by", "market_cap", "分层维度: market_cap / holders / cap_holders / amount / turnover（换手率）/ volatility（波动率）/ amplitude（振幅）/ momentum（60日动量）")
 	methodLibraryStratifyCmd.Flags().StringVar(&stratifySplit, "split", "", "切分类型: fixed / walk_forward（空=walk_forward）")
 	methodLibraryStratifyCmd.Flags().BoolVar(&stratifyEmitScope, "emit-scope", false, "把最优层固化为方法 scope 条件并输出建议 JSON")
 	methodLibraryStratifyCmd.Flags().BoolVar(&stratifyRegime, "regime", true, "输出市场环境标注（池内等权指数 vs 60日均线 的多头/空头分段统计）")

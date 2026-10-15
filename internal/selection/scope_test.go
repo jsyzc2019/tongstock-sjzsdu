@@ -61,6 +61,39 @@ func TestCompileCandidateCarriesAvgSharesPerHolder(t *testing.T) {
 	}
 }
 
+func TestResolveScopeAvgTurnoverBounds(t *testing.T) {
+	min, max := 3.48, 20.0
+	m := &methods.CompiledMethod{Scope: methods.Scope{AvgTurnoverMin: &min, AvgTurnoverMax: &max}}
+	market := &marketsnapshot.MarketSnapshot{UniverseMembers: []marketsnapshot.UniverseMember{{Code: "000001", Board: "main", Status: "normal", Selected: true}}}
+	if ok, reason, _ := ResolveScope(m, market, "000001", map[string]float64{"avg_turnover": 5.0}); !ok || reason != "" {
+		t.Fatalf("avg turnover 5%% inside bounds should pass: ok=%v reason=%s", ok, reason)
+	}
+	if ok, _, detail := ResolveScope(m, market, "000001", map[string]float64{"avg_turnover": 1.2}); ok {
+		t.Fatalf("avg turnover below min should be excluded, detail=%s", detail)
+	}
+	if ok, _, detail := ResolveScope(m, market, "000001", map[string]float64{"avg_turnover": 25.0}); ok {
+		t.Fatalf("avg turnover above max should be excluded, detail=%s", detail)
+	}
+	ok, reason, detail := ResolveScope(m, market, "000001", map[string]float64{})
+	if ok || reason != "scope_data_unavailable" || detail == "" {
+		t.Fatalf("missing avg turnover must fail closed: ok=%v reason=%s detail=%s", ok, reason, detail)
+	}
+}
+
+func TestCompileCandidateCarriesAvgTurnover(t *testing.T) {
+	min := 3.4828
+	c := &methods.Candidate{Name: "T", AvgTurnoverMin: &min,
+		Entry: map[string]any{"type": "compare", "left": map[string]any{"type": "indicator", "indicator": "close"},
+			"right": map[string]any{"type": "constant", "value": 1.0}, "op": "gt"}}
+	compiled, _, err := methods.Compile(c)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	if compiled.Scope.AvgTurnoverMin == nil || *compiled.Scope.AvgTurnoverMin != min {
+		t.Fatalf("avg turnover bound lost during compile: %+v", compiled.Scope)
+	}
+}
+
 // TestResolveScopeLegacyUniverseLabelIsInformational guards the behavior the
 // mined-method blocker fix depends on: a legacy method carrying only a
 // Universe label (no structured scope) must NOT be rejected for the label

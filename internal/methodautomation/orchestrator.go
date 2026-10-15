@@ -300,8 +300,12 @@ func (o *Orchestrator) processCandidate(ctx context.Context, research *discovery
 		return out
 	}
 
+	var facts validation.StockFactsProvider
+	if fp, ok := o.deps.Bars.(validation.StockFactsProvider); ok {
+		facts = fp
+	}
 	factory, err := validation.NewFactory(validation.FactoryDeps{
-		Method: candidate.Method, Bars: o.deps.Bars, Benchmark: o.deps.Benchmark,
+		Method: candidate.Method, Bars: o.deps.Bars, Benchmark: o.deps.Benchmark, Facts: facts,
 	})
 	if err != nil {
 		out.Status = "failed"

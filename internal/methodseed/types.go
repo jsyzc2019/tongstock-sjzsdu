@@ -6,7 +6,11 @@
 // 回测结果决定；未过门槛的方法会被如实标注为未通过，绝不硬编码为 verified。
 package methodseed
 
-import "time"
+import (
+	"time"
+
+	"github.com/sjzsdu/tongstock/internal/methods"
+)
 
 // Options 控制一次内置示例方法载入。
 type Options struct {
@@ -21,6 +25,9 @@ type Options struct {
 	MaxCodes int
 	// Keys 只载入指定 key 的种子方法；空 = 全部。
 	Keys []string
+	// Candidates 额外的自定义候选方法（与内置种子一起走同一验证管线）。
+	// 用于把分层研究结论固化为方法变体做对照验证。
+	Candidates []*methods.Candidate
 	// SplitType 回测切分类型: fixed / walk_forward（空 = 默认 walk_forward）。
 	SplitType string
 	// DiscoveryTrials 发现阶段搜索尝试次数（用于多重检验惩罚，0 = 不惩罚）。

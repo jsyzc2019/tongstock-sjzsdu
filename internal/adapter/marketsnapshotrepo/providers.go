@@ -431,6 +431,67 @@ func (e *SQLiteFeatureEngine) Compute(date string, codes []string, features []ma
 		}
 	}
 
+	// avg_turnover：近 120 根日线的平均换手率（%，流通市值口径）。
+	// 口径与验证侧 LiveSource 逐 bar 换手率一致（amount 百元 → 成交额元），
+	// 但窗口为近 120 日，近似验证侧的约 4 年窗口平均（已诚实标注在 FeatureSpec）。
+	// 公式：逐日 turnover% = (amount/close)/liu_tong_gu_ben(万股)。
+	needAvgTurnover := false
+	for _, f := range scopeFeatures {
+		if f.Name == "avg_turnover" {
+			needAvgTurnover = true
+			break
+		}
+	}
+	if needAvgTurnover {
+		// 单条 SQL 用窗口函数取每只股票最近 120 根日线并聚合 AVG(amount/close)，
+		// 避免 5000+ 次逐 code 查询。amount 为百元、close 为元。
+		rows, err := e.db.DB().Query(`SELECT code, AVG(amount * 1.0 / close) FROM (
+				SELECT code, amount, close,
+					ROW_NUMBER() OVER (PARTITION BY code ORDER BY date DESC) AS rn
+				FROM kline WHERE ktype = 9 AND date <= ? AND close > 0 AND amount > 0
+			) WHERE rn <= 120 GROUP BY code`, queryDate)
+		if err != nil {
+			return nil, fmt.Errorf("load avg turnover: %w", err)
+		}
+		acRatio := map[string]float64{} // code → AVG(amount/close)（百元/元）
+		for rows.Next() {
+			var c string
+			var v float64
+			if rows.Scan(&c, &v) == nil && v > 0 {
+				acRatio[c] = v
+			}
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+		// 流通股本（万股）批量加载。
+		sharesWan := map[string]float64{}
+		rows3, err := e.db.DB().Query(`SELECT code, liu_tong_gu_ben FROM stockinfo WHERE liu_tong_gu_ben > 0`)
+		if err != nil {
+			return nil, fmt.Errorf("load float shares for avg_turnover: %w", err)
+		}
+		for rows3.Next() {
+			var c string
+			var v float64
+			if rows3.Scan(&c, &v) == nil {
+				sharesWan[c] = v
+			}
+		}
+		rows3.Close()
+		if err := rows3.Err(); err != nil {
+			return nil, err
+		}
+		for c, ratio := range acRatio {
+			if wan := sharesWan[c]; wan > 0 {
+				if scopeValues[c] == nil {
+					scopeValues[c] = map[string]float64{}
+				}
+				scopeValues[c]["avg_turnover"] = ratio / wan
+			}
+		}
+	}
+
 	for _, code := range codes {
 		perCode := map[string]float64{}
 		for name, v := range scopeValues[code] {

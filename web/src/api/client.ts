@@ -331,6 +331,12 @@ export const api = {
   watchlistGroups: () =>
     fetchJSON<{ groups: { name: string; count: number }[] }>('/api/watchlist/groups'),
 
+  watchlistDeleteGroup: (group: string) =>
+    fetchJSON<{ message: string; deleted: number }>('/api/watchlist/group', {
+      method: 'DELETE',
+      body: JSON.stringify({ group }),
+    }),
+
   // Stockpool APIs
   stockpoolList: () =>
     fetchJSON<{ pools: CustomStockPool[] }>('/api/stockpool'),

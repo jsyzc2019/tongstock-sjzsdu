@@ -17,25 +17,32 @@ import (
 
 // BacktestBar 是回测引擎消费的单日行情（与 backtest.MarketBar 对齐但不依赖 paradigm）。
 type BacktestBar struct {
-	Code      string        `json:"code"`
-	Date      string        `json:"date"` // YYYY-MM-DD
-	Open      float64       `json:"open"`
-	High      float64       `json:"high"`
-	Low       float64       `json:"low"`
-	Close     float64       `json:"close"`
-	Volume    float64       `json:"volume"`
-	Amount    float64       `json:"amount"`
-	Suspended bool          `json:"suspended"`
-	Board     trading.Board `json:"board"`
-	PreClose  float64       `json:"pre_close"`
+	Code         string        `json:"code"`
+	Date         string        `json:"date"` // YYYY-MM-DD
+	Open         float64       `json:"open"`
+	High         float64       `json:"high"`
+	Low          float64       `json:"low"`
+	Close        float64       `json:"close"`
+	Volume       float64       `json:"volume"`
+	Amount       float64       `json:"amount"`
+	Suspended    bool          `json:"suspended"`
+	Board        trading.Board `json:"board"`
+	PreClose     float64       `json:"pre_close"`
+	TurnoverRate float64       `json:"turnover_rate"` // 换手率 %（stockinfo 口径；0=未知）
 }
 
 // ToMethodsBar 转换为 methods.Bar 供 CompiledMethod.Entry/Exit 使用。
+// TurnoverRate > 0 时注入 Indicators，使 entry 规则可以引用 turnover_rate
+//（该指标依赖流通股本，无法从 K 线本身推导，必须由数据源提供）。
 func (b BacktestBar) ToMethodsBar() methods.Bar {
-	return methods.Bar{
+	bar := methods.Bar{
 		Date: b.Date, Open: b.Open, High: b.High, Low: b.Low,
 		Close: b.Close, Volume: b.Volume, Amount: b.Amount,
 	}
+	if b.TurnoverRate > 0 {
+		bar.Indicators = map[string]float64{"turnover_rate": b.TurnoverRate}
+	}
+	return bar
 }
 
 // BacktestConfig 回测执行配置。

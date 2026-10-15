@@ -1,14 +1,16 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/sjzsdu/tongstock/internal/adapter/methodregistryrepo"
 	"github.com/sjzsdu/tongstock/internal/adapter/validationrepo"
 	"github.com/sjzsdu/tongstock/internal/methodregistry"
 	"github.com/sjzsdu/tongstock/internal/methodseed"
-	"github.com/sjzsdu/tongstock/internal/paradigm"
+	"github.com/sjzsdu/tongstock/internal/methods"
 	"github.com/spf13/cobra"
 )
 
@@ -21,6 +23,7 @@ var (
 	seedKeys     []string
 	seedSplit    string
 	seedTrials   int
+	seedCandidateFile string
 )
 
 var methodLibrarySeedCmd = &cobra.Command{
@@ -56,13 +59,30 @@ var methodLibrarySeedCmd = &cobra.Command{
 			return err
 		}
 
+		// 项目红线：永远读活表真实全量数据，不冻结快照。
+		liveSource := validationrepo.NewLiveSource(store)
+
+		// --candidate：额外的自定义候选方法 JSON（与内置种子同管线验证）。
+		var extraCandidates []*methods.Candidate
+		if seedCandidateFile != "" {
+			raw, err := os.ReadFile(seedCandidateFile)
+			if err != nil {
+				return fmt.Errorf("read candidate: %w", err)
+			}
+			c := &methods.Candidate{}
+			if err := json.Unmarshal(raw, c); err != nil {
+				return fmt.Errorf("parse candidate: %w", err)
+			}
+			extraCandidates = append(extraCandidates, c)
+		}
+
 		svc, err := methodseed.NewService(methodseed.Deps{
 			Registry:  registry,
-			Snapshots: paradigm.NewDatasetSnapshotStore(store),
-			Bars:      validationrepo.New(store),
-			Benchmark: validationrepo.NewBenchmark(store),
+			Snapshots: liveSource,
+			Bars:      liveSource,
+			Benchmark: validationrepo.NewBenchmarkFor(liveSource),
 			Evidence:  evidenceRepo,
-			Universe:  validationrepo.NewSnapshotUniverse(store),
+			Universe:  liveSource,
 		})
 		if err != nil {
 			return err
@@ -77,6 +97,7 @@ var methodLibrarySeedCmd = &cobra.Command{
 			Keys:            seedKeys,
 			SplitType:       seedSplit,
 			DiscoveryTrials: seedTrials,
+			Candidates:      extraCandidates,
 		})
 		if err != nil {
 			return fmt.Errorf("seed methods failed (fail closed): %w", err)
@@ -108,5 +129,6 @@ func init() {
 	methodLibrarySeedCmd.Flags().StringSliceVar(&seedKeys, "keys", nil, "只载入指定 key 的种子方法（可重复）；空=全部")
 	methodLibrarySeedCmd.Flags().StringVar(&seedSplit, "split", "", "切分类型: fixed / walk_forward（空=walk_forward）")
 	methodLibrarySeedCmd.Flags().IntVar(&seedTrials, "trials", 1, "发现阶段尝试次数（多重检验惩罚）")
+	methodLibrarySeedCmd.Flags().StringVar(&seedCandidateFile, "candidate", "", "自定义候选方法 JSON 文件（与内置种子同管线验证并注册）")
 	methodLibraryCmd.AddCommand(methodLibrarySeedCmd)
 }

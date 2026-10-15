@@ -117,3 +117,28 @@ func TestLatestSelectionScopeFeaturesComeFromStockInfo(t *testing.T) {
 		t.Fatalf("avg_shares_per_holder = %v, want 24000", perCode["avg_shares_per_holder"])
 	}
 }
+
+// TestAvgTurnoverFeatureIsComputed 验证 avg_turnover（近120日平均换手率，%）
+// 从 kline 窗口聚合 + 流通股本换算而来，量纲与验证侧 LiveSource 逐 bar
+// 换手率一致：turnover% = (amount/close)/liu_tong_gu_ben(万股)。
+// featureTestDB 里 amount = close×1e6、liu_tong_gu_ben = 1200000 万股，
+// 所以每根日线 turnover% = (close×1e6/close)/1200000 = 0.833333…，均值同。
+func TestAvgTurnoverFeatureIsComputed(t *testing.T) {
+	store := featureTestDB(t)
+	fe := marketsnapshotrepo.NewSQLiteFeatureEngine(store)
+
+	values, err := fe.Compute("2023-12-29", []string{"000001"}, []marketsnapshot.FeatureSpec{
+		{Name: "avg_turnover", Category: "scope", Window: 120},
+	})
+	if err != nil {
+		t.Fatalf("Compute: %v", err)
+	}
+	got := values["000001"]["avg_turnover"]
+	want := 1e6 / 1200000.0
+	if got == 0 {
+		t.Fatal("avg_turnover was not computed")
+	}
+	if diff := got - want; diff > 1e-9 || diff < -1e-9 {
+		t.Fatalf("avg_turnover = %v, want %v", got, want)
+	}
+}

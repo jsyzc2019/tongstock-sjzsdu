@@ -58,10 +58,13 @@ func New(cfg Config) (*Storage, error) {
 			}
 		}
 	}
-	if !strings.Contains(dsn, "?") {
-		dsn += "?cache=shared&_busy_timeout=5000&_foreign_keys=on"
-	} else {
+	// 注意：不能用 cache=shared。共享缓存模式下表级锁冲突会让 sqlite3_step
+	// 无限期阻塞（绕过 busy_timeout），且 SetMaxOpenConns(1) 下它毫无收益。
+	// :memory: 场景因单连接同样安全。
+	if strings.Contains(dsn, "?") {
 		dsn += "&_busy_timeout=5000&_foreign_keys=on"
+	} else {
+		dsn += "?_busy_timeout=5000&_foreign_keys=on"
 	}
 
 	db, err := sql.Open("sqlite3", dsn)

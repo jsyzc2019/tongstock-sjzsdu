@@ -25,6 +25,9 @@ type Candidate struct {
 	// 户均持股区间（股/户），见 Scope 同名字段。
 	AvgSharesPerHolderMin *float64 `json:"avg_shares_per_holder_min,omitempty"`
 	AvgSharesPerHolderMax *float64 `json:"avg_shares_per_holder_max,omitempty"`
+	// 窗口平均换手率区间（%），见 Scope 同名字段（股票级静态特征）。
+	AvgTurnoverMin *float64 `json:"avg_turnover_min,omitempty"`
+	AvgTurnoverMax *float64 `json:"avg_turnover_max,omitempty"`
 	ExcludeST             bool     `json:"exclude_st,omitempty"`
 	MarketState           []string `json:"market_state,omitempty"`
 	FeatureDeps           []string `json:"feature_deps,omitempty"`
@@ -70,6 +73,8 @@ func Compile(c *Candidate) (*CompiledMethod, []Diagnostic, error) {
 			MarketCapMax: c.MarketCapMax,
 			AvgSharesPerHolderMin: c.AvgSharesPerHolderMin,
 			AvgSharesPerHolderMax: c.AvgSharesPerHolderMax,
+			AvgTurnoverMin:        c.AvgTurnoverMin,
+			AvgTurnoverMax:        c.AvgTurnoverMax,
 			ExcludeST:    c.ExcludeST,
 			MarketState:  append([]string{}, c.MarketState...),
 			FeatureDeps:  append([]string{}, c.FeatureDeps...),

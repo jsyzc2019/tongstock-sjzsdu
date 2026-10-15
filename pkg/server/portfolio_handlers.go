@@ -188,6 +188,32 @@ func (s *Server) handleWatchlistDelete(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "deleted"})
 }
 
+// handleWatchlistDeleteGroup handles deleting an entire watchlist group
+func (s *Server) handleWatchlistDeleteGroup(c *gin.Context) {
+	var req struct {
+		Group string `json:"group"`
+	}
+	if err := c.BindJSON(&req); err != nil {
+		code, message := statusError(http.StatusBadRequest)
+		WriteError(c, http.StatusBadRequest, code, message)
+		return
+	}
+	if req.Group == "" || req.Group == "default" {
+		code, _ := statusError(http.StatusBadRequest)
+		WriteError(c, http.StatusBadRequest, code, "group is required and 'default' cannot be deleted as a whole")
+		return
+	}
+
+	deleted, err := s.watchlistDB.DeleteGroup(req.Group)
+	if err != nil {
+		code, message := statusError(http.StatusInternalServerError)
+		WriteError(c, http.StatusInternalServerError, code, message)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "deleted", "deleted": deleted})
+}
+
 // handleWatchlistUpdateNote handles watchlist note update requests
 func (s *Server) handleWatchlistUpdateNote(c *gin.Context) {
 	code := c.Param("code")

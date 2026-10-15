@@ -153,6 +153,12 @@ func (f *Factory) runUniverse(ctx context.Context, job ValidationJob) (*Evidence
 	}
 
 	// 第一遍：加载每个代码的真实 K 线，构建全池交易日并集。
+	// 方法带股票级 scope（换手率/市值/户均）时，scope 求值在此完成：
+	// 不在 scope 内的代码按 fail-closed 跳过，回测与等权基准都只跑 scope 内股票。
+	scope := f.deps.Method.Scope
+	if _, needCap, needHolder := scopeNeedsFacts(scope); (needCap || needHolder) && f.deps.Facts == nil {
+		return nil, fmt.Errorf("method scope requires market cap / holders facts but no facts provider wired: fail closed")
+	}
 	type codeBars struct {
 		code string
 		bars []BacktestBar
@@ -171,6 +177,16 @@ func (f *Factory) runUniverse(ctx context.Context, job ValidationJob) (*Evidence
 		if len(bars) < 30 {
 			skipped = append(skipped, SkippedCode{Code: code, Reason: fmt.Sprintf("real bars %d < 30", len(bars))})
 			continue
+		}
+		if needTurnover, needCap, needHolder := scopeNeedsFacts(scope); needTurnover || needCap || needHolder {
+			facts, err := computeScopeFacts(ctx, scope, bars, f.deps.Facts)
+			if err != nil {
+				return nil, fmt.Errorf("compute scope facts for %s: %w", code, err)
+			}
+			if reason := scopeSkipReason(scope, facts); reason != "" {
+				skipped = append(skipped, SkippedCode{Code: code, Reason: reason})
+				continue
+			}
 		}
 		for _, b := range bars {
 			dateSet[b.Date] = struct{}{}
