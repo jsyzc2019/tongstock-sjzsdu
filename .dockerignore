@@ -1,0 +1,31 @@
+# VCS
+.git/
+.gitignore
+
+# 本地工作区数据（不进镜像）
+.workbuddy/
+memory/
+sessions/
+state/
+configs/
+
+# 依赖目录（镜像内重新安装）
+**/node_modules/
+
+# 本机构建产物（镜像内重新构建）
+web/dist/
+pkg/web/dist/
+tongstock
+cli
+*.test
+
+# 本机运行时产物
+**/*.pid
+**/*.log
+
+# 文档与规划文件（不影响构建）
+METHOD_AUTOMATION_IMPLEMENTATION_PLAN.md
+PARADIGM_PROMOTION_IMPLEMENTATION_PLAN.md
+
+# 编辑器 / 系统杂物
+.DS_Store

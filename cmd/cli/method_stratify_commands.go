@@ -17,10 +17,10 @@ import (
 )
 
 var (
-	stratifyMethod   string
-	stratifySnapshot string // 兼容保留：数据固定读活表，此参数被忽略
-	stratifyGroups   int
-	stratifyMaxCodes int
+	stratifyMethod    string
+	stratifySnapshot  string // 兼容保留：数据固定读活表，此参数被忽略
+	stratifyGroups    int
+	stratifyMaxCodes  int
 	stratifySplit     string
 	stratifyBy        string
 	stratifyEmitScope bool

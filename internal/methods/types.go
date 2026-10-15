@@ -55,10 +55,10 @@ type Scope struct {
 	// 注意这是股票级静态特征（全窗口平均），不是入场当日的时点换手率。
 	AvgTurnoverMin *float64 `json:"avg_turnover_min,omitempty"`
 	AvgTurnoverMax *float64 `json:"avg_turnover_max,omitempty"`
-	ExcludeST             bool     `json:"exclude_st,omitempty"`
-	MarketState           []string `json:"market_state,omitempty"`  // "trend_up" "bear" "range" 空=无限制
-	FeatureDeps           []string `json:"feature_deps,omitempty"`  // 依赖的非内建特征名 (用于执行前 fail-fast)
-	MaxPositions          int      `json:"max_positions,omitempty"` // 最大持仓数, 0=不限
+	ExcludeST      bool     `json:"exclude_st,omitempty"`
+	MarketState    []string `json:"market_state,omitempty"`  // "trend_up" "bear" "range" 空=无限制
+	FeatureDeps    []string `json:"feature_deps,omitempty"`  // 依赖的非内建特征名 (用于执行前 fail-fast)
+	MaxPositions   int      `json:"max_positions,omitempty"` // 最大持仓数, 0=不限
 }
 
 // OutcomeRule defines the label used to validate a method.  It is part of the

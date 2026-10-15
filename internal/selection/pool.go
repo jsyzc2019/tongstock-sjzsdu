@@ -24,7 +24,7 @@ type PoolEntry struct {
 	// Triggered 表示在池内且当日入场规则命中（仅对 InScope 股票有意义）。
 	Triggered bool `json:"triggered"`
 	// 现值快照（可能缺失，0=无数据）。
-	MarketCap          float64 `json:"market_cap,omitempty"`           // 流通市值（亿元）
+	MarketCap          float64 `json:"market_cap,omitempty"`            // 流通市值（亿元）
 	AvgSharesPerHolder float64 `json:"avg_shares_per_holder,omitempty"` // 户均持股（股/户）
 	AvgTurnover        float64 `json:"avg_turnover,omitempty"`          // 近120日平均换手率（%）
 	Close              float64 `json:"close,omitempty"`
@@ -110,10 +110,10 @@ func (e *Engine) MethodPool(ctx context.Context, req Request) (*MethodPool, erro
 		if entry.Name == "" {
 			entry.Name = names[code]
 		}
-	entry.MarketCap = values["market_cap"]
-	entry.AvgSharesPerHolder = values["avg_shares_per_holder"]
-	entry.AvgTurnover = values["avg_turnover"]
-	entry.Close = values["close"]
+		entry.MarketCap = values["market_cap"]
+		entry.AvgSharesPerHolder = values["avg_shares_per_holder"]
+		entry.AvgTurnover = values["avg_turnover"]
+		entry.Close = values["close"]
 
 		inScope, reason, detail := ResolveScope(compiled, market, code, values)
 		if !inScope {

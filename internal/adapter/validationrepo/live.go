@@ -35,16 +35,16 @@ const liveWindowYears = 4
 type LiveSource struct {
 	store *storage.Storage
 
-	mu        sync.Mutex
-	cached    *paradigm.DatasetSnapshot
-	floatMu   sync.Mutex
-	floatMap  map[string]float64 // code → 流通股本（股）
-	floatOnce bool
-	holderMu  sync.Mutex
-	holderMap map[string]float64 // code → 股东户数（户）
+	mu         sync.Mutex
+	cached     *paradigm.DatasetSnapshot
+	floatMu    sync.Mutex
+	floatMap   map[string]float64 // code → 流通股本（股）
+	floatOnce  bool
+	holderMu   sync.Mutex
+	holderMap  map[string]float64 // code → 股东户数（户）
 	holderOnce bool
-	uniMu     sync.Mutex
-	uniCounts map[string]int // code → 窗口内日线数（进程内缓存，避免重复全表扫描）
+	uniMu      sync.Mutex
+	uniCounts  map[string]int // code → 窗口内日线数（进程内缓存，避免重复全表扫描）
 }
 
 // universeCounts 返回窗口起始日以来每只股票的日线数（进程内缓存）。
@@ -263,7 +263,7 @@ func (s *LiveSource) resolveLiveUniverse(windowStart string, minBars, maxCodes i
 // LoadBars 实现 validation.BarProvider：直读活表 kline（区间过滤在 SQL 完成，
 // 区间前取一根真实前收盘，与冻结实现的 PreClose 语义一致）。
 // 同时按流通股本（stockinfo.liu_tong_gu_ben 当前值，窗口近似）计算逐 bar 换手率
-//（%，stockinfo 口径），供 entry 规则引用 turnover_rate；缺股本的股票该值为 0，
+// （%，stockinfo 口径），供 entry 规则引用 turnover_rate；缺股本的股票该值为 0，
 // 相关条件在执行器中按 fail-closed 处理。
 func (s *LiveSource) LoadBars(ctx context.Context, snapshotID, code, dateStart, dateEnd string) ([]validation.BacktestBar, error) {
 	if err := ctx.Err(); err != nil {
@@ -341,8 +341,8 @@ func (s *LiveSource) LoadBars(ctx context.Context, snapshotID, code, dateStart, 
 }
 
 var (
-	_ paradigmSnapshotStore = (*LiveSource)(nil)
-	_ validation.BarProvider = (*LiveSource)(nil)
+	_ paradigmSnapshotStore         = (*LiveSource)(nil)
+	_ validation.BarProvider        = (*LiveSource)(nil)
 	_ validation.StockFactsProvider = (*LiveSource)(nil)
 )
 

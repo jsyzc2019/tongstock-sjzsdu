@@ -3,9 +3,20 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	yaml "gopkg.in/yaml.v3"
+)
+
+// 服务器配置的环境变量覆盖项（容器部署用）。优先级：env > config.yaml > 默认值。
+const (
+	// EnvServerPort 覆盖 Server.Port
+	EnvServerPort = "TONGSTOCK_SERVER_PORT"
+	// EnvServerBindAddress 覆盖 Server.BindAddress
+	EnvServerBindAddress = "TONGSTOCK_SERVER_BIND_ADDRESS"
+	// EnvServerAccessToken 覆盖 Server.AccessToken
+	EnvServerAccessToken = "TONGSTOCK_SERVER_ACCESS_TOKEN"
 )
 
 // Config 架构定义
@@ -188,7 +199,8 @@ database:
 `
 }
 
-// Load 读取并合并配置，若无配置文件则写入默认模板并返回默认配置
+// Load 读取并合并配置，若无配置文件则写入默认模板并返回默认配置。
+// 合并优先级：环境变量 > config.yaml > 内置默认值。
 func Load() (*Config, error) {
 	if err := EnsureHomeDir(); err != nil {
 		return nil, err
@@ -199,7 +211,9 @@ func Load() (*Config, error) {
 		if err := writeDefaultConfig(path); err != nil {
 			return nil, err
 		}
-		return DefaultConfig(), nil
+		cfg := DefaultConfig()
+		applyEnvOverrides(cfg)
+		return cfg, nil
 	} else if err != nil {
 		return nil, err
 	}
@@ -286,7 +300,25 @@ func Load() (*Config, error) {
 		merged.Agent.StockAgent = tmp.Agent.StockAgent
 	}
 
+	applyEnvOverrides(merged)
 	return merged, nil
+}
+
+// applyEnvOverrides 用环境变量覆盖服务器配置，供容器部署通过 compose 的
+// environment/secret 注入端口、监听地址与 access_token，密钥无需落盘。
+// 仅覆盖实际设置了的变量；非法值（如非数字端口）保持原配置不变。
+func applyEnvOverrides(cfg *Config) {
+	if v := strings.TrimSpace(os.Getenv(EnvServerPort)); v != "" {
+		if port, err := strconv.Atoi(v); err == nil && port > 0 && port <= 65535 {
+			cfg.Server.Port = port
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv(EnvServerBindAddress)); v != "" {
+		cfg.Server.BindAddress = v
+	}
+	if v := strings.TrimSpace(os.Getenv(EnvServerAccessToken)); v != "" {
+		cfg.Server.AccessToken = v
+	}
 }
 
 // Save 将 Config 写入配置文件

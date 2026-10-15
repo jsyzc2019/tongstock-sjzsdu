@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sjzsdu/tongstock/internal/adapter/validationrepo"
 	"github.com/sjzsdu/tongstock/internal/methodregistry"
 	"github.com/sjzsdu/tongstock/internal/methods"
 	"github.com/sjzsdu/tongstock/internal/paradigm"
-	"github.com/sjzsdu/tongstock/internal/adapter/validationrepo"
 	"github.com/sjzsdu/tongstock/internal/validation"
 )
 

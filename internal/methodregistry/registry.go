@@ -129,6 +129,7 @@ func (r *Registry) ManualTransition(ctx context.Context, id string, to Status, r
 	}
 	return m, nil
 }
+
 // Delete 移除一个方法。红线：只删记录，不伪造任何状态——终止审计事件
 // （action=delete）与全部历史审计一起永久保留，删除原因必须留痕。
 func (r *Registry) Delete(ctx context.Context, id, reason, actor string) error {

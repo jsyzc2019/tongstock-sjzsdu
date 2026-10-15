@@ -14,24 +14,24 @@ import (
 // Candidate 是编译器的输入, 可以来自自然语言结构化结果或已有的
 // paradigm JSON。编译器只接受明确字段, 保留歧义而非静默猜测。
 type Candidate struct {
-	Name            string   `json:"name"`
-	Description     string   `json:"description,omitempty"`
-	SourceKind      string   `json:"source_kind,omitempty"` // "natural_lang" / "structured" / "existing_paradigm"
-	SourceText      string   `json:"source_text,omitempty"`
-	Universe        string   `json:"universe,omitempty"`
-	BoardFilter     []string `json:"board_filter,omitempty"`
-	MarketCapMin    *float64 `json:"market_cap_min,omitempty"`
-	MarketCapMax    *float64 `json:"market_cap_max,omitempty"`
+	Name         string   `json:"name"`
+	Description  string   `json:"description,omitempty"`
+	SourceKind   string   `json:"source_kind,omitempty"` // "natural_lang" / "structured" / "existing_paradigm"
+	SourceText   string   `json:"source_text,omitempty"`
+	Universe     string   `json:"universe,omitempty"`
+	BoardFilter  []string `json:"board_filter,omitempty"`
+	MarketCapMin *float64 `json:"market_cap_min,omitempty"`
+	MarketCapMax *float64 `json:"market_cap_max,omitempty"`
 	// 户均持股区间（股/户），见 Scope 同名字段。
 	AvgSharesPerHolderMin *float64 `json:"avg_shares_per_holder_min,omitempty"`
 	AvgSharesPerHolderMax *float64 `json:"avg_shares_per_holder_max,omitempty"`
 	// 窗口平均换手率区间（%），见 Scope 同名字段（股票级静态特征）。
-	AvgTurnoverMin *float64 `json:"avg_turnover_min,omitempty"`
-	AvgTurnoverMax *float64 `json:"avg_turnover_max,omitempty"`
-	ExcludeST             bool     `json:"exclude_st,omitempty"`
-	MarketState           []string `json:"market_state,omitempty"`
-	FeatureDeps           []string `json:"feature_deps,omitempty"`
-	MaxPositions          int      `json:"max_positions,omitempty"`
+	AvgTurnoverMin  *float64 `json:"avg_turnover_min,omitempty"`
+	AvgTurnoverMax  *float64 `json:"avg_turnover_max,omitempty"`
+	ExcludeST       bool     `json:"exclude_st,omitempty"`
+	MarketState     []string `json:"market_state,omitempty"`
+	FeatureDeps     []string `json:"feature_deps,omitempty"`
+	MaxPositions    int      `json:"max_positions,omitempty"`
 	Entry           any      `json:"entry_rule"` // JSON object → *Expr
 	Exit            any      `json:"exit_rule,omitempty"`
 	Invalid         any      `json:"invalid_rule,omitempty"`
@@ -67,18 +67,18 @@ func Compile(c *Candidate) (*CompiledMethod, []Diagnostic, error) {
 		SourceKind:      firstNonEmpty(c.SourceKind, "structured"),
 		SourceText:      c.SourceText,
 		Scope: Scope{
-			Universe:     firstNonEmpty(c.Universe, "universe_all"),
-			BoardFilter:  append([]string{}, c.BoardFilter...),
-			MarketCapMin: c.MarketCapMin,
-			MarketCapMax: c.MarketCapMax,
+			Universe:              firstNonEmpty(c.Universe, "universe_all"),
+			BoardFilter:           append([]string{}, c.BoardFilter...),
+			MarketCapMin:          c.MarketCapMin,
+			MarketCapMax:          c.MarketCapMax,
 			AvgSharesPerHolderMin: c.AvgSharesPerHolderMin,
 			AvgSharesPerHolderMax: c.AvgSharesPerHolderMax,
 			AvgTurnoverMin:        c.AvgTurnoverMin,
 			AvgTurnoverMax:        c.AvgTurnoverMax,
-			ExcludeST:    c.ExcludeST,
-			MarketState:  append([]string{}, c.MarketState...),
-			FeatureDeps:  append([]string{}, c.FeatureDeps...),
-			MaxPositions: c.MaxPositions,
+			ExcludeST:             c.ExcludeST,
+			MarketState:           append([]string{}, c.MarketState...),
+			FeatureDeps:           append([]string{}, c.FeatureDeps...),
+			MaxPositions:          c.MaxPositions,
 		},
 		Position: normalizePos(c),
 		Holding: HoldingRule{

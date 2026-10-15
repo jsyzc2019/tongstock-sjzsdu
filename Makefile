@@ -1,5 +1,6 @@
 .PHONY: all web cli server install clean run check \
-	fmt-check go-check go-arch-check go-migration-check web-check quality-check
+	fmt-check go-check go-arch-check go-migration-check web-check quality-check \
+	docker-build docker-push
 
 # Default to ~/.local/bin for installation, which is the standard user binary directory
 # Users can override with BINDIR environment variable if needed
@@ -70,3 +71,16 @@ install: cli
 clean:
 	rm -f $(CLI_BIN) tongstock-server
 	rm -rf pkg/web/dist
+
+# Docker 镜像构建/推送（供部署仓库使用：compose/Traefik 拉取 sjzsdu/tongstock）
+# latest 之外附加一个版本 tag：优先 git tag（如 v0.2.7），无 tag 时退化为 short
+# hash；本地有未提交改动时 git describe 追加 -dirty 后缀。
+DOCKER_IMAGE ?= sjzsdu/tongstock
+DOCKER_TAG ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+
+docker-build:
+	docker build -t $(DOCKER_IMAGE):latest -t $(DOCKER_IMAGE):$(DOCKER_TAG) .
+
+docker-push: docker-build
+	docker push $(DOCKER_IMAGE):latest
+	docker push $(DOCKER_IMAGE):$(DOCKER_TAG)

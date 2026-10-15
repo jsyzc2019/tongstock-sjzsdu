@@ -33,7 +33,7 @@ type BacktestBar struct {
 
 // ToMethodsBar 转换为 methods.Bar 供 CompiledMethod.Entry/Exit 使用。
 // TurnoverRate > 0 时注入 Indicators，使 entry 规则可以引用 turnover_rate
-//（该指标依赖流通股本，无法从 K 线本身推导，必须由数据源提供）。
+// （该指标依赖流通股本，无法从 K 线本身推导，必须由数据源提供）。
 func (b BacktestBar) ToMethodsBar() methods.Bar {
 	bar := methods.Bar{
 		Date: b.Date, Open: b.Open, High: b.High, Low: b.Low,

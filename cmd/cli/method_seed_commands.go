@@ -9,20 +9,20 @@ import (
 	"github.com/sjzsdu/tongstock/internal/adapter/methodregistryrepo"
 	"github.com/sjzsdu/tongstock/internal/adapter/validationrepo"
 	"github.com/sjzsdu/tongstock/internal/methodregistry"
-	"github.com/sjzsdu/tongstock/internal/methodseed"
 	"github.com/sjzsdu/tongstock/internal/methods"
+	"github.com/sjzsdu/tongstock/internal/methodseed"
 	"github.com/spf13/cobra"
 )
 
 var (
-	seedSnapshot string
-	seedUniverse string
-	seedStart    string
-	seedEnd      string
-	seedMaxCodes int
-	seedKeys     []string
-	seedSplit    string
-	seedTrials   int
+	seedSnapshot      string
+	seedUniverse      string
+	seedStart         string
+	seedEnd           string
+	seedMaxCodes      int
+	seedKeys          []string
+	seedSplit         string
+	seedTrials        int
 	seedCandidateFile string
 )
 
