@@ -1,0 +1,92 @@
+name: Build and Push Docker Images
+
+# 构建 tongstock 服务镜像并推到 Docker Hub,
+# 供 deploy 仓库的 tongstock 服务 pull(sjzsdu/tongstock)。
+#
+# 触发方式(与 multica 的 selfhost-images.yml 一致):
+#   1. 推送 master 分支 → latest + sha-<短SHA>
+#   2. 推送 v* 标签 → latest + v0.2.8
+#   3. Actions 页面手动触发(workflow_dispatch),可自定义版本号
+#
+# 必需的仓库 Secrets(sjzsdu/tongstock → Settings → Secrets and variables → Actions):
+#   DOCKERHUB_USERNAME  Docker Hub 用户名(sjzsdu)
+#   DOCKERHUB_TOKEN     Docker Hub Personal Access Token(Write 权限)
+#
+# 说明:go.mod 通过 `replace => ../picoclaw` 引用本地兄弟仓库,Actions 的
+# checkout 里没有它;Dockerfile 已内置从公开 fork(sjzsdu/picoclaw)按
+# PICOCLAW_PIN 固定 commit 拉取,CI 环境无需额外处理。本地 picoclaw 有
+# 更新需要进镜像时,更新 Dockerfile 里的 PICOCLAW_PIN。
+
+on:
+  push:
+    branches:
+      - master
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "镜像版本号(如 v0.2.8),留空用 short SHA"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - name: Resolve version
+        id: meta
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            version="${{ inputs.version }}"
+            if [ -z "$version" ]; then
+              version="sha-$(echo '${{ github.sha }}' | cut -c1-7)"
+            fi
+          elif [ "${{ github.ref_type }}" = "tag" ]; then
+            version="${{ github.ref_name }}"
+          else
+            version="sha-$(echo '${{ github.sha }}' | cut -c1-7)"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Building version: $version"
+
+  build:
+    needs: resolve
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          pull: true
+          push: true
+          # GitHub 托管 runner 在海外,Go 模块代理改回官方源(比 goproxy.cn 快)
+          build-args: |
+            GOPROXY=https://proxy.golang.org,direct
+          cache-from: type=gha,scope=dockerfile
+          cache-to: type=gha,mode=max,scope=dockerfile
+          tags: |
+            sjzsdu/tongstock:latest
+            sjzsdu/tongstock:${{ needs.resolve.outputs.version }}
+
+      - name: Inspect pushed image
+        run: docker buildx imagetools inspect sjzsdu/tongstock:${{ needs.resolve.outputs.version }}
