@@ -3,6 +3,7 @@ package newsfeed
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 )
@@ -14,6 +15,11 @@ type fakeFeed struct {
 	err    error
 	byCode map[string][]*NewsItem
 	calls  int
+	// block 为真时 FetchByStock 阻塞到 ctx 结束，用于验证补抓超时有界。
+	block bool
+
+	mu         sync.Mutex
+	stockCalls []string
 }
 
 func (f *fakeFeed) Name() SourceType                 { return f.name }
@@ -25,8 +31,15 @@ func (f *fakeFeed) Fetch(context.Context) ([]*NewsItem, error) {
 	return f.items, f.err
 }
 
-func (f *fakeFeed) FetchByStock(_ context.Context, code string) ([]*NewsItem, error) {
+func (f *fakeFeed) FetchByStock(ctx context.Context, code string) ([]*NewsItem, error) {
+	f.mu.Lock()
 	f.calls++
+	f.stockCalls = append(f.stockCalls, code)
+	f.mu.Unlock()
+	if f.block {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -38,6 +51,15 @@ func (f *fakeFeed) FetchByStock(_ context.Context, code string) ([]*NewsItem, er
 		out = append(out, it)
 	}
 	return out, nil
+}
+
+// fetchedCodes 返回 FetchByStock 被调用过的股票代码（并发安全）。
+func (f *fakeFeed) fetchedCodes() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]string, len(f.stockCalls))
+	copy(out, f.stockCalls)
+	return out
 }
 
 func (f *fakeFeed) FetchByKeyword(context.Context, string) ([]*NewsItem, error) {

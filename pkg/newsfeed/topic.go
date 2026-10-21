@@ -77,13 +77,24 @@ type HotTopicsRequest struct {
 	ForceRefresh bool
 	// MinConfidence 覆盖默认的强关联阈值；<=0 时用 DefaultMinConfidence。
 	MinConfidence float64
+	// HeadlineLimit 覆盖每股代表新闻条数；<=0 时用服务配置
+	// （默认 DefaultTopicHeadlines，现值 3）。
+	HeadlineLimit int
+	// ConfidenceFloor 覆盖榜单关联置信度地板；<=0 时用服务配置
+	// （默认 topicMinConfidenceFloor，现值 0.5）。低于 0.5 的阈值需要
+	// 同时显式下压本字段才会生效，否则仍被地板抬回 0.5。
+	ConfidenceFloor float64
 }
 
 // DefaultTopicTop 是热门榜单的默认条数。
 const DefaultTopicTop = 10
 
-// topicMinConfidenceFloor 是「计入榜单」的最低关联置信度。榜单是聚合视图，
-// 阈值放得太低会被榜单类文章的正文偶然提及淹没。
+// DefaultTopicHeadlines 是每股代表新闻（headlines）的默认条数。
+const DefaultTopicHeadlines = 3
+
+// topicMinConfidenceFloor 是「计入榜单」的最低关联置信度默认地板。榜单是
+// 聚合视图，阈值放得太低会被榜单类文章的正文偶然提及淹没。该值只是默认值，
+// 可被 HotTopicsRequest.ConfidenceFloor / 服务配置 / 环境变量覆盖。
 const topicMinConfidenceFloor = 0.5
 
 // HotStockTopics 查询指定日期的热门股票。非 cache_only 且新鲜窗口外时
@@ -117,7 +128,8 @@ func (s *Service) HotStockTopics(ctx context.Context, req HotTopicsRequest) (*Ho
 		}
 	}
 
-	items, asOf, err := s.aggregateTopics(ctx, target, req.Top, req.MinConfidence)
+	items, asOf, err := s.aggregateTopics(ctx, target, req.Top, req.MinConfidence,
+		s.resolveConfidenceFloor(req.ConfidenceFloor), s.resolveHeadlineLimit(req.HeadlineLimit))
 	if err != nil {
 		return nil, err
 	}
@@ -145,6 +157,41 @@ func (s *Service) HotStockTopics(ctx context.Context, req HotTopicsRequest) (*Ho
 	return out, nil
 }
 
+// resolveHeadlineLimit 解析每股代表新闻条数：请求 > 服务配置 > 默认值。
+func (s *Service) resolveHeadlineLimit(req int) int {
+	if req > 0 {
+		return req
+	}
+	if s.topicHeadlineLimit > 0 {
+		return s.topicHeadlineLimit
+	}
+	return DefaultTopicHeadlines
+}
+
+// resolveConfidenceFloor 解析置信度地板：请求 > 服务配置 > 默认值。
+// 请求字段 <=0 表示未指定（请求参数无法表达「地板归零」，需要归零时用
+// SetTopicConfidenceFloor 或环境变量）。
+func (s *Service) resolveConfidenceFloor(req float64) float64 {
+	if req > 0 {
+		return req
+	}
+	return s.topicConfidenceFloor
+}
+
+// SetTopicHeadlineLimit 覆盖每股代表新闻条数；n<=0 时忽略。
+func (s *Service) SetTopicHeadlineLimit(n int) {
+	if n > 0 {
+		s.topicHeadlineLimit = n
+	}
+}
+
+// SetTopicConfidenceFloor 覆盖榜单置信度地板；f 取 [0,1]，0 表示取消地板。
+func (s *Service) SetTopicConfidenceFloor(f float64) {
+	if f >= 0 && f <= 1 {
+		s.topicConfidenceFloor = f
+	}
+}
+
 // topicMessage 组装结果附言。优先级：交易日回退 > 数据源降级 > 空榜说明。
 func topicMessage(out *HotTopicResult, requested string) string {
 	if out.Fallback && requested != "" {
@@ -169,15 +216,22 @@ type topicAcc struct {
 }
 
 // aggregateTopics 从库内按日期窗口聚合热门股票。
-func (s *Service) aggregateTopics(ctx context.Context, day time.Time, top int, minConf float64) ([]HotTopicStock, time.Time, error) {
+// floor 是关联置信度地板，headlineLimit 是每股代表新闻条数。
+func (s *Service) aggregateTopics(ctx context.Context, day time.Time, top int, minConf, floor float64, headlineLimit int) ([]HotTopicStock, time.Time, error) {
 	if top <= 0 {
 		top = DefaultTopicTop
 	}
 	if minConf <= 0 {
 		minConf = DefaultMinConfidence
 	}
-	if minConf < topicMinConfidenceFloor {
-		minConf = topicMinConfidenceFloor
+	if floor < 0 {
+		floor = 0
+	}
+	if minConf < floor {
+		minConf = floor
+	}
+	if headlineLimit <= 0 {
+		headlineLimit = DefaultTopicHeadlines
 	}
 
 	start := time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, day.Location())
@@ -253,7 +307,7 @@ func (s *Service) aggregateTopics(ctx context.Context, day time.Time, top int, m
 		if err := s.fillTopicSources(ctx, code, start, end, minConf, a); err != nil {
 			return nil, time.Time{}, err
 		}
-		if err := s.fillTopicHeadlines(ctx, code, start, end, minConf, a); err != nil {
+		if err := s.fillTopicHeadlines(ctx, code, start, end, minConf, headlineLimit, a); err != nil {
 			return nil, time.Time{}, err
 		}
 		a.item.Name = name
@@ -305,7 +359,10 @@ func (s *Service) fillTopicSources(ctx context.Context, code string, start, end 
 
 // fillTopicHeadlines 取一只股票当日最热的几条代表新闻，同时附带新闻摘要与
 // 关联原因，便于用户快速了解该股票为何被提及。
-func (s *Service) fillTopicHeadlines(ctx context.Context, code string, start, end time.Time, minConf float64, a *topicAcc) error {
+func (s *Service) fillTopicHeadlines(ctx context.Context, code string, start, end time.Time, minConf float64, limit int, a *topicAcc) error {
+	if limit <= 0 {
+		limit = DefaultTopicHeadlines
+	}
 	rows, err := s.store.db.QueryContext(ctx, `
 		SELECT n.id, n.title, COALESCE(n.summary, ''), n.source, n.publish_time, n.url,
 		       r.match_type
@@ -314,8 +371,8 @@ func (s *Service) fillTopicHeadlines(ctx context.Context, code string, start, en
 		WHERE r.code = ? AND r.confidence >= ?
 		  AND n.publish_time >= ? AND n.publish_time < ?
 		ORDER BY n.hot_score DESC, n.publish_time DESC
-		LIMIT 3
-	`, code, minConf, start.Format(time.RFC3339), end.Format(time.RFC3339))
+		LIMIT ?
+	`, code, minConf, start.Format(time.RFC3339), end.Format(time.RFC3339), limit)
 	if err != nil {
 		return err
 	}
