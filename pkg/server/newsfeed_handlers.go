@@ -399,6 +399,10 @@ func (h *NewsfeedHandler) handleHotTopics(c *gin.Context) {
 		Mode:          mode,
 		ForceRefresh:  c.Query("refresh") == "true",
 		MinConfidence: queryFloat(c, "min_confidence", 0),
+		// headline_limit / min_confidence_floor 不传时保持既有默认
+		// （3 条、0.5 地板），不破坏调用方。
+		HeadlineLimit:   queryInt(c, "headline_limit", 0),
+		ConfidenceFloor: queryFloat(c, "min_confidence_floor", 0),
 	}
 
 	result, err := h.stockNewsSvc.HotStockTopics(c.Request.Context(), req)

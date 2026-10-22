@@ -225,6 +225,19 @@ func NewApp(cfg *config.Config, opts Options) (_ *App, err error) {
 		} else {
 			app.newsService = newsSvc
 			newsHandler.SetStockNewsService(newsSvc)
+			// 候选股池的「监控池」部分：自选股并入 GlobalSync 后的
+			// 定向补抓候选（与全局流命中代码取并集，受上限约束）。
+			newsSvc.SetStockPoolProvider(func(ctx context.Context) ([]string, error) {
+				stocks, err := watchlistStore.GetAll()
+				if err != nil {
+					return nil, err
+				}
+				codes := make([]string, 0, len(stocks))
+				for _, st := range stocks {
+					codes = append(codes, st.Code)
+				}
+				return codes, nil
+			})
 			app.setModule("newsfeed", "ready", "")
 			app.startNewsBackgroundSync()
 		}

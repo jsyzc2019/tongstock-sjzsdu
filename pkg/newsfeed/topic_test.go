@@ -190,3 +190,89 @@ func TestHotTopicsTopLimit(t *testing.T) {
 		t.Fatalf("Top=2 应只返回 2 条，实际 %d", len(got.Items))
 	}
 }
+
+// headlines 条数可配置：请求 > 服务配置 > 默认值 3。
+func TestHotTopicsHeadlineLimitConfigurable(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	base := time.Date(2026, 9, 17, 10, 0, 0, 0, time.Local)
+	for i := 0; i < 5; i++ {
+		seedTopicNews(t, ctx, store, "h"+string(rune('a'+i)), "茅台新闻", "600519",
+			MatchNative, 1.0, base.Add(time.Duration(i)*time.Hour), 90-i*10)
+	}
+
+	// 默认保持 3 条，不破坏既有调用方。
+	svc, _ := NewService(store, []Feed{}, testNames)
+	got, err := svc.HotStockTopics(ctx, HotTopicsRequest{Date: "2026-09-17", Mode: NewsCacheOnly})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Items[0].Headlines) != DefaultTopicHeadlines {
+		t.Fatalf("默认应为 %d 条, got %d", DefaultTopicHeadlines, len(got.Items[0].Headlines))
+	}
+
+	// 请求参数覆盖。
+	got, err = svc.HotStockTopics(ctx, HotTopicsRequest{Date: "2026-09-17", Mode: NewsCacheOnly, HeadlineLimit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Items[0].Headlines) != 1 {
+		t.Fatalf("HeadlineLimit=1 应返回 1 条, got %d", len(got.Items[0].Headlines))
+	}
+
+	// 服务配置生效，请求参数优先。
+	svc.SetTopicHeadlineLimit(2)
+	got, _ = svc.HotStockTopics(ctx, HotTopicsRequest{Date: "2026-09-17", Mode: NewsCacheOnly})
+	if len(got.Items[0].Headlines) != 2 {
+		t.Fatalf("服务配置 2 条应生效, got %d", len(got.Items[0].Headlines))
+	}
+	got, _ = svc.HotStockTopics(ctx, HotTopicsRequest{Date: "2026-09-17", Mode: NewsCacheOnly, HeadlineLimit: 4})
+	if len(got.Items[0].Headlines) != 4 {
+		t.Fatalf("请求参数应覆盖服务配置, got %d", len(got.Items[0].Headlines))
+	}
+}
+
+// 置信度地板可配置，默认保持 0.5；低于 0.5 的阈值需显式下压地板才生效。
+func TestHotTopicsConfidenceFloorConfigurable(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	base := time.Date(2026, 9, 17, 10, 0, 0, 0, time.Local)
+	seedTopicNews(t, ctx, store, "strong", "贵州茅台涨停", "600519", MatchNameHit, 0.9, base, 50)
+	seedTopicNews(t, ctx, store, "weak", "百元股榜单", "600519", MatchNameHit, 0.4, base.Add(time.Hour), 40)
+
+	// 默认地板 0.5：弱关联不计。
+	svc, _ := NewService(store, []Feed{}, testNames)
+	got, err := svc.HotStockTopics(ctx, HotTopicsRequest{Date: "2026-09-17", Mode: NewsCacheOnly})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Items[0].Mentions != 1 {
+		t.Fatalf("默认地板应过滤弱关联, got %d", got.Items[0].Mentions)
+	}
+
+	// 只下压 min_confidence 而不动地板：仍被抬回 0.5（保持既有语义）。
+	got, _ = svc.HotStockTopics(ctx, HotTopicsRequest{Date: "2026-09-17", Mode: NewsCacheOnly, MinConfidence: 0.4})
+	if got.Items[0].Mentions != 1 {
+		t.Fatalf("地板未下压时弱关联仍应被过滤, got %d", got.Items[0].Mentions)
+	}
+
+	// 显式下压地板后，弱关联计入。
+	got, _ = svc.HotStockTopics(ctx, HotTopicsRequest{
+		Date: "2026-09-17", Mode: NewsCacheOnly, MinConfidence: 0.4, ConfidenceFloor: 0.4,
+	})
+	if got.Items[0].Mentions != 2 {
+		t.Fatalf("地板=0.4 时弱关联应计入, got %d", got.Items[0].Mentions)
+	}
+
+	// 服务配置地板，未指定请求参数时同样受控。
+	svc.SetTopicConfidenceFloor(0.4)
+	got, _ = svc.HotStockTopics(ctx, HotTopicsRequest{Date: "2026-09-17", Mode: NewsCacheOnly, MinConfidence: 0.4})
+	if got.Items[0].Mentions != 2 {
+		t.Fatalf("服务配置地板 0.4 应生效, got %d", got.Items[0].Mentions)
+	}
+	// min_confidence 未指定仍是默认 0.5：默认值不变，避免破坏调用方。
+	got, _ = svc.HotStockTopics(ctx, HotTopicsRequest{Date: "2026-09-17", Mode: NewsCacheOnly})
+	if got.Items[0].Mentions != 1 {
+		t.Fatalf("默认阈值应保持 0.5, got %d", got.Items[0].Mentions)
+	}
+}

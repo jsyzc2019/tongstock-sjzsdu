@@ -63,6 +63,14 @@ type Service struct {
 	now             func() time.Time
 	// clusterer 用于后台同步后重建热点事件；可为 nil（不生成）。
 	clusterer *Clusterer
+	// poolCfg 控制 GlobalSync 后的候选股池定向补抓，见 config.go。
+	poolCfg StockPoolSyncConfig
+	// poolProvider 提供榜单/监控池候选代码；可为 nil。
+	poolProvider StockPoolProvider
+	// topicHeadlineLimit 是每股代表新闻条数（默认 DefaultTopicHeadlines）。
+	topicHeadlineLimit int
+	// topicConfidenceFloor 是榜单关联置信度地板（默认 topicMinConfidenceFloor）。
+	topicConfidenceFloor float64
 }
 
 // NameResolverAware 由需要「代码 → 简称」才能检索的数据源实现。
@@ -83,6 +91,9 @@ func NewService(store *SQLiteStore, feeds []Feed, dir StockDirectory) (*Service,
 		freshnessWindow: DefaultFreshnessWindow,
 		now:             time.Now,
 	}
+	svc.poolCfg = stockPoolSyncConfigFromEnv(DefaultStockPoolSyncConfig())
+	svc.topicHeadlineLimit, svc.topicConfidenceFloor =
+		topicTunablesFromEnv(DefaultTopicHeadlines, topicMinConfidenceFloor)
 	if dir != nil {
 		for _, f := range feeds {
 			if aware, ok := f.(NameResolverAware); ok {
@@ -316,11 +327,15 @@ func (s *Service) fromStore(ctx context.Context, req StockNewsRequest, degraded 
 }
 
 // GlobalSync 抓取全局快讯（不针对个股），供后台定时同步使用。
+// 全局流落库后追加一轮候选股池定向补抓（syncStockPool），把按股检索语料
+// 纳入同一张库表，topic 聚合才能覆盖到「未被单独浏览过」的股票；补抓失败
+// 只跳过，不进降级列表、不改变本方法的返回语义。
 func (s *Service) GlobalSync(ctx context.Context) (int, []SourceDegradation) {
 	if s.matcher == nil {
 		_ = s.RefreshEntities(ctx)
 	}
 	var degraded []SourceDegradation
+	var poolHits []string
 	total := 0
 	for _, f := range s.feeds {
 		if f == nil {
@@ -338,9 +353,12 @@ func (s *Service) GlobalSync(ctx context.Context) (int, []SourceDegradation) {
 			degraded = append(degraded, SourceDegradation{Source: f.Name(), Error: err.Error()})
 			continue
 		}
+		poolHits = appendPoolHits(poolHits, items)
 		total += len(items)
 	}
 	s.markSync("global", total, nil)
+
+	s.syncStockPool(ctx, poolHits)
 
 	// 抓取完成后重建热点事件。失败以降级形式暴露，成功则静默——
 	// 结果本身就是落库的事件，列表页能直接看到。
